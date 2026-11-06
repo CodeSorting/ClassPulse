@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">ClassPulse</string>
+    <string name="demo_banner">로컬 시연 · 이 기기에만 저장됩니다</string>
+    <string name="back">뒤로</string>
+    <string name="nav_classes">수업</string>
+    <string name="nav_records">내 기록</string>
+    <string name="nav_profile">내 정보</string>
 </resources>

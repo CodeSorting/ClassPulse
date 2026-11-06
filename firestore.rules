@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function own(uid) { return signedIn() && request.auth.uid == uid; }
+    function session(sid) { return get(/databases/$(database)/documents/sessions/$(sid)).data; }
+    function owner(sid) { return signedIn() && session(sid).deletedAt == null && session(sid).ownerUid == request.auth.uid; }
+    function member(sid) {
+      return signedIn() && session(sid).deletedAt == null &&
+        exists(/databases/$(database)/documents/sessions/$(sid)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/sessions/$(sid)/members/$(request.auth.uid)).data.state == 'ACTIVE';
+    }
+    function access(sid) { return owner(sid) || member(sid); }
+    match /users/{uid} {
+      allow read: if own(uid);
+      match /lessonRefs/{sid} { allow read: if own(uid); }
+      match /commandReceipts/{op} { allow read: if own(uid); }
+      match /savedMaterials/{sid} { allow read: if own(uid); }
+      match /lessonData/{sid}/{kind}/{id} {
+        allow read: if own(uid) && kind in ['questionDrafts','marks','reactionReceipts','attempts','notes'];
+      }
+    }
+    match /sessions/{sid} {
+      allow get: if access(sid);
+      match /topics/{id} { allow read: if access(sid); }
+      match /visits/{id} { allow read: if access(sid); }
+      match /progressEvents/{id} { allow read: if owner(sid); }
+      match /members/{uid} { allow read: if owner(sid) || (own(uid) && access(sid)); }
+      match /questions/{id} { allow read: if owner(sid) || (access(sid) && resource.data.authorUid == request.auth.uid); }
+      match /publicQna/{id} { allow read: if access(sid); }
+      match /teacherDrafts/{id} { allow read: if owner(sid); }
+      match /analytics/{id} { allow read: if owner(sid); }
+      match /materialHead/{id} { allow read: if access(sid); }
+      match /materialReleases/{id} { allow read: if access(sid) && resource.data.state == 'READY'; }
+      match /quizzes/{id} {
+        allow read: if access(sid);
+        match /versions/{version} { allow read: if access(sid); }
+      }
+      match /quizDrafts/{id} { allow read: if owner(sid); }
+      match /quizKeys/{id} { allow read: if owner(sid); }
+      match /processingJobs/{id} { allow read: if owner(sid); }
+    }
+    // All mobile writes, invite mappings, rate limits and raw reactions default deny.
+    match /{document=**} { allow write: if false; }
+  }
+}

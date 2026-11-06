@@ -1,0 +1,26 @@
+<com.google.android.material.textfield.TextInputLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="16dp"
+    app:boxBackgroundColor="@color/cp_surface"
+    app:boxCornerRadiusTopStart="14dp"
+    app:boxCornerRadiusTopEnd="14dp"
+    app:boxCornerRadiusBottomStart="14dp"
+    app:boxCornerRadiusBottomEnd="14dp"
+    app:boxStrokeColor="@color/cp_accent"
+>
+    <com.google.android.material.textfield.TextInputEditText
+        android:id="@+id/input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="56dp"
+        android:inputType="textCapSentences"
+        android:textSize="16sp"
+        android:textColor="@color/cp_ink"
+        android:padding="16dp"
+        android:saveEnabled="true"
+    />
+</com.google.android.material.textfield.TextInputLayout>

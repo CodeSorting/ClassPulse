@@ -1,7 +1,17 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.ClassPulse" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
+<resources>
+    <style
+        name="Base.Theme.ClassPulse"
+        parent="Theme.Material3.Light.NoActionBar"
+    >
+        <item name="colorPrimary">@color/cp_brand</item>
+        <item name="colorOnPrimary">@color/cp_surface</item>
+        <item name="colorSecondary">@color/cp_accent</item>
+        <item name="colorSurface">@color/cp_surface</item>
+        <item name="colorOnSurface">@color/cp_ink</item>
+        <item name="android:colorBackground">@color/cp_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="materialButtonStyle">@style/CpButton</item>
     </style>
 </resources>

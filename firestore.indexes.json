@@ -1,0 +1,15 @@
+{
+  "indexes":[
+    {"collectionGroup":"questions","queryScope":"COLLECTION","fields":[{"fieldPath":"authorUid","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]},
+    {"collectionGroup":"questions","queryScope":"COLLECTION","fields":[{"fieldPath":"topicId","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]},
+    {"collectionGroup":"questions","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]}
+  ],
+  "fieldOverrides":[
+    {"collectionGroup":"questions","fieldPath":"text","indexes":[]},
+    {"collectionGroup":"questions","fieldPath":"answer","indexes":[]},
+    {"collectionGroup":"teacherDrafts","fieldPath":"text","indexes":[]},
+    {"collectionGroup":"questionDrafts","fieldPath":"text","indexes":[]},
+    {"collectionGroup":"publicQna","fieldPath":"questionText","indexes":[]},
+    {"collectionGroup":"publicQna","fieldPath":"answerText","indexes":[]}
+  ]
+}

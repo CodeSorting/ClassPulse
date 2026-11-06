@@ -1,5 +1,14 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <color name="cp_background">#F5F8F6</color>
+    <color name="cp_surface">#FFFFFF</color>
+    <color name="cp_brand">#174F45</color>
+    <color name="cp_accent">#21735D</color>
+    <color name="cp_ink">#20362E</color>
+    <color name="cp_muted">#6C857A</color>
+    <color name="cp_line">#DCE7DF</color>
+    <color name="cp_mint">#E6F2EB</color>
+    <color name="cp_warning">#FFF4DE</color>
+    <color name="cp_danger">#A64B46</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
 </resources>
