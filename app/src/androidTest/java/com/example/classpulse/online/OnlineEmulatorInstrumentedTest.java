@@ -108,7 +108,8 @@ public class OnlineEmulatorInstrumentedTest {
                         new FirebaseOptions.Builder()
                                 .setApplicationId("1:123456789:android:abcdef0123456789")
                                 .setProjectId("demo-classpulse")
-                                .setApiKey("AIzaSy000000000000000000000000000000000")
+                                // Firebase Installations validates the format even in emulator tests.
+                                .setApiKey("A_classpulse_emulator_only_placeholder0")
                                 .build(),
                         "online-test-" + OnlineJson.id());
         c.app.setDataCollectionDefaultEnabled(false);
