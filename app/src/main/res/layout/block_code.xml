@@ -1,0 +1,33 @@
+<!-- 4자리 참여 코드를 한 자리씩 큰 상자로 보여준다 (PPT 링크·코드 초대 화면) -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginBottom="14dp"
+>
+    <TextView
+        android:id="@+id/caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/cp_accent"
+    />
+    <LinearLayout
+        android:id="@+id/digits"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
+    />
+    <TextView
+        android:id="@+id/hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/cp_muted"
+    />
+</LinearLayout>

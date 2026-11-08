@@ -1,0 +1,27 @@
+<!-- 화면 중간의 소제목: 화면 맨 위 큰 제목(block_heading)보다 작고, 위쪽에 여백을 둔다 -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginTop="14dp"
+    android:layout_marginBottom="12dp"
+>
+    <TextView
+        android:id="@+id/title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:textColor="@color/cp_ink"
+        android:textStyle="bold"
+    />
+    <TextView
+        android:id="@+id/subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="13sp"
+        android:textColor="@color/cp_muted"
+        android:lineSpacingExtra="3dp"
+    />
+</LinearLayout>

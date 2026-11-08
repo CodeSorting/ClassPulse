@@ -21,6 +21,16 @@
         android:paddingTop="12dp"
         android:paddingBottom="12dp"
     >
+        <!-- 진행 중 ▶ / 완료 ✔ / 예정 ○ 아이콘 -->
+        <ImageView
+            android:id="@+id/icon"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_marginEnd="12dp"
+            android:src="@drawable/ic_cp_todo"
+            app:tint="@color/cp_muted"
+            android:importantForAccessibility="no"
+        />
         <TextView
             android:id="@+id/title"
             android:layout_width="0dp"
@@ -35,7 +45,13 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:background="@drawable/bg_cp_chip"
             android:textSize="12sp"
+            android:textStyle="bold"
             android:textColor="@color/cp_accent"
         />
     </LinearLayout>

@@ -9,6 +9,10 @@
     <color name="cp_mint">#E6F2EB</color>
     <color name="cp_warning">#FFF4DE</color>
     <color name="cp_danger">#A64B46</color>
+    <!-- 상태 배지용 글자색·배경색 (재민 UI 수정) -->
+    <color name="cp_warning_ink">#8A5A00</color>
+    <color name="cp_danger_soft">#F8E5E3</color>
+    <color name="cp_neutral_soft">#EEF2EF</color>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
 </resources>

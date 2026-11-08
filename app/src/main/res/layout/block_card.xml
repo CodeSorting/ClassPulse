@@ -13,34 +13,63 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:baselineAligned="false"
         android:padding="18dp"
     >
-        <TextView
-            android:id="@+id/badge"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="7dp"
-            android:textSize="12sp"
-            android:textColor="@color/cp_accent"
-        />
-        <TextView
-            android:id="@+id/title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="18sp"
-            android:textColor="@color/cp_ink"
-            android:textStyle="bold"
-            android:lineSpacingExtra="3dp"
-        />
-        <TextView
-            android:id="@+id/subtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="14sp"
-            android:textColor="@color/cp_muted"
-            android:lineSpacingExtra="4dp"
+            android:orientation="vertical"
+        >
+            <!-- 상태 배지: 상태에 따라 Ui.card()에서 배경색·글자색을 바꾼다 -->
+            <TextView
+                android:id="@+id/badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:background="@drawable/bg_cp_chip"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/cp_accent"
+                android:maxLines="1"
+                android:ellipsize="end"
+            />
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="18sp"
+                android:textColor="@color/cp_ink"
+                android:textStyle="bold"
+                android:lineSpacingExtra="3dp"
+            />
+            <TextView
+                android:id="@+id/subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="14sp"
+                android:textColor="@color/cp_muted"
+                android:lineSpacingExtra="4dp"
+            />
+        </LinearLayout>
+        <!-- 눌러서 들어갈 수 있는 카드에만 보이는 화살표 -->
+        <ImageView
+            android:id="@+id/chevron"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="10dp"
+            android:src="@drawable/ic_cp_chevron"
+            app:tint="@color/cp_muted"
+            android:importantForAccessibility="no"
+            android:visibility="gone"
         />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

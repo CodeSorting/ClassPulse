@@ -46,7 +46,7 @@ public final class InviteFragment extends BaseFragment {
             return;
         }
         ui.heading(content, lesson.title, lesson.description);
-        ui.card(content, lesson.code, "학생 참여 코드 · 4자리", "준비", null);
+        ui.code(content, lesson.code, "학생 참여 코드", "학생은 이 4자리 코드를 입력해 수업을 확인해요.");
         ui.button(content, "코드 복사", false, () -> copy(lesson.code));
         String link = "classpulse://join/" + lesson.id;
         ui.card(content, "수업 초대 링크", link, "로컬 시연", null);

@@ -1,0 +1,5 @@
+<!-- 하단 탭 배경: 선택된 탭에만 연한 민트색 알약 모양 표시 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/cp_mint" android:state_selected="true" />
+    <item android:color="@android:color/transparent" />
+</selector>

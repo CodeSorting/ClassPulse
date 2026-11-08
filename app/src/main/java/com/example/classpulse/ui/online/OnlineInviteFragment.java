@@ -29,7 +29,7 @@ public final class OnlineInviteFragment extends OnlineFragment {
         String code = invite.optString("code"), link = invite.optString("link");
         if (code.isEmpty()) ui.note(shell.content, "초대를 발급하면 코드와 링크를 함께 공유할 수 있어요.");
         else {
-            ui.heading(shell.content, "참여 코드 " + code, "발급 후 24시간 유효 · 새로 발급하면 이전 초대가 만료돼요.");
+            ui.code(shell.content, code, "참여 코드", "발급 후 24시간 유효 · 새로 발급하면 이전 초대가 만료돼요.");
             ui.note(shell.content, link);
             ui.pair(shell.content, "코드 복사", () -> copy(code), "링크 복사", () -> copy(link));
             ui.button(

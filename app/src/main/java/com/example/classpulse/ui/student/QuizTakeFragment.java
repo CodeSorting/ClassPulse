@@ -66,7 +66,7 @@ public class QuizTakeFragment extends BaseFragment {
         ui.text(content, quiz.question);
         for (int index = 0; index < quiz.options.size(); index++) {
             final int option = index;
-            ui.button(
+            ui.choice(
                     content,
                     (choice == option ? "✓ " : "") + (option + 1) + ". " + quiz.options.get(option),
                     choice == option,
@@ -75,7 +75,7 @@ public class QuizTakeFragment extends BaseFragment {
                         render();
                     });
         }
-        ui.button(
+        ui.choice(
                 content,
                 choice == -1 ? "✓ 모르겠어요" : "모르겠어요",
                 choice == -1,

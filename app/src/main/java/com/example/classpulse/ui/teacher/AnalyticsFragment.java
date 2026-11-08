@@ -56,7 +56,7 @@ public final class AnalyticsFragment extends BaseFragment {
         ui.note(
                 content,
                 "반응 수와 반응한 학생 수는 달라요. 한 학생이 여러 반응을 남길 수 있고, 재설명 중에도 반응할 수 있어요. 반응이 없다고 이해했다고 판단하지 않아요.");
-        ui.heading(content, "대주제별로 살펴봐요", "반응 비율은 참여 학생 중 해당 반응을 한 번 이상 남긴 학생의 비율이에요.");
+        ui.section(content, "대주제별로 살펴봐요", "반응 비율은 참여 학생 중 해당 반응을 한 번 이상 남긴 학생의 비율이에요.");
         String[] labels = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
         for (LessonAnalytics.TopicStats topic : stats.topics) {
             ui.card(
@@ -77,7 +77,13 @@ public final class AnalyticsFragment extends BaseFragment {
                         stats.participants == 0
                                 ? "참여 학생 없음"
                                 : Math.round(count * 100f / stats.participants) + "%";
-                ui.text(content, labels[i] + "  " + count + "명 · " + ratio);
+                // 참여 학생 대비 비율을 막대로 표시한다. 문구는 기존과 동일.
+                ui.meter(
+                        content,
+                        labels[i] + "  " + count + "명 · " + ratio,
+                        null,
+                        count,
+                        Math.max(1, stats.participants));
             }
             ui.button(
                     content,
@@ -86,7 +92,7 @@ public final class AnalyticsFragment extends BaseFragment {
                     () -> navigate("questions", screen().withTopic(topic.topicId)));
             ui.divider(content);
         }
-        ui.heading(content, "설명한 순서", "재설명 구간도 이전 이력과 함께 남아요. 시간은 이 기기에 기록된 진도 변경 기준입니다.");
+        ui.section(content, "설명한 순서", "재설명 구간도 이전 이력과 함께 남아요. 시간은 이 기기에 기록된 진도 변경 기준입니다.");
         List<Models.Visit> visits = new ArrayList<>(lesson.visits);
         visits.sort(Comparator.comparingLong(visit -> visit.startedAt));
         if (visits.isEmpty()) ui.note(content, "아직 수업을 시작하지 않았어요.");

@@ -115,19 +115,11 @@ public final class LiveLessonFragment extends BaseFragment {
                     if (TYPES[i].equals(reaction.type)) counts[i]++;
                 students.add(reaction.studentId);
             }
-        ui.heading(content, "지금 대주제의 익명 반응", "실제로 이 기기에서 전달한 반응만 집계해요.");
-        ui.stats(
-                content,
-                LABELS[0],
-                Integer.toString(counts[0]),
-                LABELS[1],
-                Integer.toString(counts[1]));
-        ui.stats(
-                content,
-                LABELS[2],
-                Integer.toString(counts[2]),
-                LABELS[3],
-                Integer.toString(counts[3]));
+        ui.section(content, "지금 대주제의 익명 반응", "실제로 이 기기에서 전달한 반응만 집계해요.");
+        // 반응 유형별 건수를 막대로 비교한다. 가장 많은 유형이 막대 100%.
+        int most = 0;
+        for (int count : counts) most = Math.max(most, count);
+        for (int i = 0; i < LABELS.length; i++) ui.meter(content, LABELS[i], counts[i], most);
         int submitted = 0;
         for (Models.Question question : lesson.questions)
             if (!"DRAFT".equals(question.status)) submitted++;

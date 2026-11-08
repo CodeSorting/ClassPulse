@@ -84,6 +84,8 @@ public abstract class BaseFragment extends Fragment {
         shell.backButton.setVisibility(showBack ? View.VISIBLE : View.INVISIBLE);
         shell.backButton.setOnClickListener(v -> host().back());
         shell.roleLabel.setText(vm.teacher() ? "교수자" : "STUDENT".equals(vm.role()) ? "학생" : "");
+        shell.roleLabel.setVisibility(
+                shell.roleLabel.getText().length() == 0 ? View.INVISIBLE : View.VISIBLE);
         String n = getClass().getSimpleName();
         boolean nav =
                 n.equals("HomeFragment")
@@ -101,6 +103,15 @@ public abstract class BaseFragment extends Fragment {
             navigate(vm.teacher() ? "questions" : "records");
         });
         shell.navSettings.setOnClickListener(v -> navigate("settings"));
+        // 현재 화면에 해당하는 탭을 선택 상태로 표시한다.
+        selectTab(shell.navHome, n.equals("HomeFragment") || n.equals("ReviewFragment"));
+        selectTab(shell.navRecords, n.equals("RecordsFragment"));
+        selectTab(shell.navSettings, n.equals("SettingsFragment"));
+    }
+
+    private static void selectTab(com.google.android.material.button.MaterialButton tab, boolean on) {
+        tab.setSelected(on);
+        tab.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
     }
 
     protected Models.Lesson lesson() {

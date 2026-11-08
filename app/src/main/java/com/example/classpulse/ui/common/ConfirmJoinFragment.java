@@ -45,7 +45,7 @@ public final class ConfirmJoinFragment extends BaseFragment {
                 l.description,
                 "LIVE".equals(l.status) ? "수업 중" : "ENDED".equals(l.status) ? "수업 종료" : "시작 전",
                 null);
-        ui.text(content, "오늘의 대주제");
+        ui.section(content, "오늘의 대주제", null);
         for (Models.Topic t : l.topics)
             ui.topic(
                     content,

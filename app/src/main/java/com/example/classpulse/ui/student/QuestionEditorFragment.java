@@ -176,6 +176,12 @@ public class QuestionEditorFragment extends BaseFragment {
         questionInput = ui.field(content, "궁금한 내용", buffer, true);
         questionInput.setFilters(new InputFilter[] {new InputFilter.LengthFilter(1000)});
         TextView counter = ui.text(content, buffer.length() + " / 1,000자");
+        // 글자 수는 입력창 오른쪽 아래에 작고 흐리게 표시한다.
+        counter.setGravity(android.view.Gravity.END);
+        counter.setTextSize(12);
+        counter.setTextColor(
+                androidx.core.content.ContextCompat.getColor(
+                        requireContext(), com.example.classpulse.R.color.cp_muted));
         questionInput.addTextChangedListener(
                 new TextWatcher() {
                     @Override

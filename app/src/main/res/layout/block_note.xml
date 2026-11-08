@@ -9,13 +9,31 @@
     app:cardBackgroundColor="@color/cp_mint"
     app:strokeWidth="0dp"
 >
-    <TextView
-        android:id="@+id/note_text"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
         android:padding="16dp"
-        android:textSize="14sp"
-        android:textColor="@color/cp_muted"
-        android:lineSpacingExtra="4dp"
-    />
+    >
+        <!-- 안내문 앞의 (i) 아이콘 -->
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginTop="1dp"
+            android:layout_marginEnd="10dp"
+            android:src="@drawable/ic_cp_info"
+            app:tint="@color/cp_accent"
+            android:importantForAccessibility="no"
+        />
+        <TextView
+            android:id="@+id/note_text"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/cp_muted"
+            android:lineSpacingExtra="4dp"
+        />
+    </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

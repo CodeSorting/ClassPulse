@@ -102,7 +102,7 @@ public final class AccountFragment extends Fragment {
         AppViewModel demo = new ViewModelProvider(requireActivity()).get(AppViewModel.class);
         if (!demo.pendingInvite().isEmpty() && !"CODE".equals(demo.pendingInvite()))
             ui.note(binding.content, "받은 초대 링크를 보관하고 있어요. 코드·링크로 온라인 수업 참여에서 수업을 확인해 주세요.");
-        ui.heading(binding.content, "예시 수업으로 둘러보기", "아래 시연은 이 기기에 저장된 예시 수업을 사용해요.");
+        ui.section(binding.content, "예시 수업으로 둘러보기", "아래 시연은 이 기기에 저장된 예시 수업을 사용해요.");
         ui.button(binding.content, "교수자 시연으로 살펴보기", false, () -> host().enterDemo("TEACHER"))
                 .setEnabled(!state.busy());
         ui.button(binding.content, "학생 시연으로 살펴보기", false, () -> host().enterDemo("STUDENT"))

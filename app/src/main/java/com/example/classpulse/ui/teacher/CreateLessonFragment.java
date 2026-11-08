@@ -98,7 +98,7 @@ public final class CreateLessonFragment extends BaseFragment {
                 content, editing ? "수업 정보를 수정해요" : "오늘의 수업을 준비해요", "수업 정보와 설명할 대주제의 순서를 정해 주세요.");
         titleInput = ui.field(content, "수업명", titleValue, false);
         descriptionInput = ui.field(content, "회차·설명", descriptionValue, false);
-        ui.heading(content, "설명할 대주제", "주제 개수는 자유롭게 정할 수 있어요.");
+        ui.section(content, "설명할 대주제", "주제 개수는 자유롭게 정할 수 있어요.");
         for (int i = 0; i < topicValues.size(); i++) {
             final int index = i;
             topicInputs.add(ui.field(content, (i + 1) + ". 대주제", topicValues.get(i), false));

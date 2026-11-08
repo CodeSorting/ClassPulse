@@ -14,17 +14,14 @@
         android:paddingStart="12dp"
         android:paddingEnd="24dp"
     >
-        <TextView
+        <ImageButton
             android:id="@+id/back_button"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:text="‹"
-            android:textSize="32sp"
-            android:gravity="center"
-            android:textColor="@color/cp_brand"
+            android:src="@drawable/ic_cp_back"
+            android:scaleType="center"
+            app:tint="@color/cp_brand"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true"
             android:contentDescription="@string/back"
         />
         <TextView
@@ -41,9 +38,15 @@
             android:id="@+id/role_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingStart="8dp"
+            android:layout_marginStart="8dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/bg_cp_chip"
             android:textSize="12sp"
-            android:textColor="@color/cp_muted"
+            android:textStyle="bold"
+            android:textColor="@color/cp_brand"
         />
     </LinearLayout>
     <TextView
@@ -89,50 +92,55 @@
         android:paddingEnd="24dp"
         android:paddingTop="12dp"
         android:paddingBottom="12dp"
-        android:background="@color/cp_surface"
+        android:background="@drawable/bg_cp_bar_top"
         android:visibility="gone"
     />
     <LinearLayout
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="60dp"
+        android:minHeight="68dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
-        android:background="@color/cp_surface"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@drawable/bg_cp_bar_top"
         android:visibility="gone"
     >
         <com.google.android.material.button.MaterialButton
             android:id="@+id/nav_home"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/CpNavButton"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:minHeight="52dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
             android:text="@string/nav_classes"
-            android:textSize="14sp"
+            app:icon="@drawable/ic_cp_home"
         />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/nav_records"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/CpNavButton"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:minHeight="52dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
             android:text="@string/nav_records"
-            android:textSize="14sp"
+            app:icon="@drawable/ic_cp_records"
         />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/nav_settings"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/CpNavButton"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:minHeight="52dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
             android:text="@string/nav_profile"
-            android:textSize="14sp"
+            app:icon="@drawable/ic_cp_person"
         />
     </LinearLayout>
 </LinearLayout>

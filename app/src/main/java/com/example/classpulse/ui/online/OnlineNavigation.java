@@ -2,7 +2,6 @@ package com.example.classpulse.ui.online;
 
 import android.graphics.Typeface;
 import android.view.View;
-import androidx.core.content.ContextCompat;
 import com.example.classpulse.MainActivity;
 import com.example.classpulse.R;
 import com.example.classpulse.databinding.FragmentShellBinding;
@@ -23,10 +22,9 @@ public final class OnlineNavigation {
             MaterialButton button, MainActivity host, int label, String route, String selected) {
         boolean active = route.equals(selected);
         button.setText(label);
+        // 선택 상태에 따라 아이콘·글자색·민트 배경이 res/color 선택자로 바뀐다.
         button.setSelected(active);
         button.setTypeface(null, active ? Typeface.BOLD : Typeface.NORMAL);
-        button.setTextColor(
-                ContextCompat.getColor(host, active ? R.color.cp_brand : R.color.cp_muted));
         button.setOnClickListener(v -> host.openOnlineTab(route));
     }
 }

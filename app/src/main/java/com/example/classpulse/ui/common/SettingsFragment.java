@@ -33,7 +33,17 @@ public final class SettingsFragment extends BaseFragment {
         clear();
         ui.heading(
                 content, vm.teacher() ? "교수자 시연 계정" : "학생 시연 계정", "이 화면의 수업과 기록은 기기 내 시연 데이터예요.");
+        // 역할 전환은 시연에서 가장 자주 쓰므로 스크롤 없이 보이도록 위로 올렸다.
+        ui.button(
+                content,
+                vm.teacher() ? "학생 시연으로 전환" : "교수자 시연으로 전환",
+                true,
+                () -> {
+                    vm.setRole(vm.teacher() ? "STUDENT" : "TEACHER");
+                    host().navigateRoot("home");
+                });
         ui.button(content, "내 Google 계정", false, () -> host().openGoogleAccount());
+        ui.section(content, "내 시연 프로필", null);
         String key = vm.teacher() ? "teacher_name" : "student_name";
         android.content.SharedPreferences prefs =
                 requireContext().getSharedPreferences("local_demo", 0);
@@ -83,15 +93,6 @@ public final class SettingsFragment extends BaseFragment {
                                                             render();
                                                         })))
                                 .show());
-        ui.heading(content, "역할을 바꿔 확인해요", null);
-        ui.button(
-                content,
-                vm.teacher() ? "학생 시연으로 전환" : "교수자 시연으로 전환",
-                true,
-                () -> {
-                    vm.setRole(vm.teacher() ? "STUDENT" : "TEACHER");
-                    host().navigateRoot("home");
-                });
         ui.button(
                 dock,
                 "시연 종료",

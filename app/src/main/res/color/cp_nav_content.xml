@@ -1,0 +1,5 @@
+<!-- 하단 탭 아이콘·글자색: 선택된 탭은 브랜드색, 나머지는 회색 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/cp_brand" android:state_selected="true" />
+    <item android:color="@color/cp_muted" />
+</selector>

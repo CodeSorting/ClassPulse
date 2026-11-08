@@ -1,0 +1,13 @@
+<!-- 고정 하단 영역과 하단 탭 위에 1dp 구분선을 그립니다. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/cp_line" />
+        </shape>
+    </item>
+    <item android:top="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/cp_surface" />
+        </shape>
+    </item>
+</layer-list>
