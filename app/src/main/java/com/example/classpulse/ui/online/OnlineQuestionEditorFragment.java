@@ -1,12 +1,19 @@
 package com.example.classpulse.ui.online;
 
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.os.*;
+import android.speech.RecognizerIntent;
 import android.text.*;
 import android.widget.*;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import com.example.classpulse.online.*;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class OnlineQuestionEditorFragment extends OnlineFragment {
@@ -16,6 +23,23 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
     private boolean built, typed, sealed, setting;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable save = () -> flush(false);
+    private final ActivityResultLauncher<Intent> speech = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null ||
+                        input == null || shell == null || sealed) return;
+                ArrayList<String> candidates = result.getData().getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+                if (candidates == null || candidates.isEmpty()) return;
+                String spoken = candidates.get(0);
+                new MaterialAlertDialogBuilder(requireContext()).setTitle("음성 입력 확인")
+                        .setMessage(spoken)
+                        .setNegativeButton("취소", null)
+                        .setPositiveButton("질문에 추가", (dialog, button) -> {
+                            String existing = input.getText().toString();
+                            String updated = existing.isEmpty() ? spoken : existing + "\n" + spoken;
+                            if (updated.length() > 1000) error("질문을 1,000자 이내로 줄여 주세요.");
+                            else input.setText(updated);
+                        }).show();
+            });
 
     @Override
     protected String title() {
@@ -123,6 +147,15 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
 
                     public void afterTextChanged(Editable e) {}
                 });
+        ui.button(shell.content, "음성으로 질문 입력", false, this::startSpeech).setEnabled(!sealed);
+        com.google.android.material.button.MaterialButton rewrite =
+                ui.button(shell.content, "AI로 질문 다듬기", false, () -> {});
+        rewrite.setEnabled(!sealed);
+        rewrite.setOnClickListener(view -> {
+            String source = input.getText().toString().trim();
+            if (source.isEmpty() || source.length() > 1000) error("질문을 1,000자 이내로 입력해 주세요.");
+            else aiText(view, input, "mode", "rewrite", "text", source);
+        });
         status =
                 ui.note(
                         shell.content,
@@ -172,6 +205,18 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
                                                 "online_question_edit",
                                                 screen.withQuestion(copy).withTopic(topic))));
                     });
+    }
+
+    private void startSpeech() {
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+                .putExtra(RecognizerIntent.EXTRA_PROMPT, "질문을 말해 주세요.");
+        try {
+            speech.launch(intent);
+        } catch (ActivityNotFoundException error) {
+            error("이 기기에서 음성 입력을 사용할 수 없어요. 질문을 직접 입력해 주세요.");
+        }
     }
 
     private void flush(boolean unused) {

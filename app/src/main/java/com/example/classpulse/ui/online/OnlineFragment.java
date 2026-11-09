@@ -279,6 +279,46 @@ public abstract class OnlineFragment extends Fragment {
         };
     }
 
+    protected void learning(
+            String action, Consumer<JSONObject> success, Consumer<String> failure, Object... fields) {
+        Object[] values = new Object[fields.length + 2];
+        values[0] = "sessionId";
+        values[1] = screen.lessonId;
+        System.arraycopy(fields, 0, values, 2, fields.length);
+        long token = viewToken();
+        repo.read("learning." + action, OnlineJson.values(values), new OnlineRepository.Callback() {
+            @Override
+            public void success(JSONObject value) {
+                if (current(token)) success.accept(value);
+            }
+
+            @Override
+            public void error(String reason, String message) {
+                if (current(token)) failure.accept(message);
+            }
+        });
+    }
+
+    protected void aiText(android.view.View trigger, android.widget.EditText field, Object... fields) {
+        trigger.setEnabled(false);
+        learning("generateLearningDraft", value -> {
+            trigger.setEnabled(true);
+            String suggestion = value.optString("text");
+            if (suggestion.isEmpty() || !field.isAttachedToWindow() || !field.isEnabled()) return;
+            new MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("AI 초안 확인")
+                    .setMessage(suggestion)
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("초안 반영", (dialog, button) -> {
+                        if (field.isAttachedToWindow() && field.isEnabled()) field.setText(suggestion);
+                    })
+                    .show();
+        }, message -> {
+            trigger.setEnabled(true);
+            error(message);
+        }, fields);
+    }
+
     protected void showNotice() {
         if (!notice.isEmpty()) ui.note(shell.content, notice);
     }

@@ -54,6 +54,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
+    implementation(libs.firebase.storage)
     implementation(libs.work.runtime)
     implementation(libs.credentials)
     implementation(libs.credentials.play.services)

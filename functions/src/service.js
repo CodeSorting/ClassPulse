@@ -1,5 +1,6 @@
 "use strict";
 const crypto = require("node:crypto");
+const { createLearningService } = require("./learning");
 const {
     Timestamp,
     FieldValue
@@ -79,7 +80,8 @@ function emptyStats(now) {
 
 function createService(db, {
     clock = Date.now,
-    randomCode = () => String(crypto.randomInt(10000)).padStart(4, "0")
+    randomCode = () => String(crypto.randomInt(10000)).padStart(4, "0"),
+    learningProviders = {}
 } = {}) {
     const sessionRef = sid => db.doc(`sessions/${id(sid)}`);
     const personal = (uid, sid, kind, key) => db.doc(`users/${uid}/lessonData/${id(sid)}/${kind}/${id(key)}`);
@@ -834,15 +836,21 @@ function createService(db, {
         saveAnswerDraft: (u, p) => answer(u, p, false),
         publishAnswer: (u, p) => answer(u, p, true)
     };
-    return {
-        async dispatch(uid, request, name = "") {
+    const learning = createLearningService({
+        db, access, command, clock, id, text, integer, hash, fail, providers: learningProviders
+    });
+    async function dispatch(routes, uid, request, name = "") {
             if (typeof uid !== "string" || !uid || uid.length > 128) fail("AUTH_REQUIRED", "로그인이 필요해요.", "unauthenticated");
-            if (!request || typeof request !== "object" || !Object.hasOwn(handlers, request.command) || !request.payload || typeof request.payload !== "object" || Array.isArray(request.payload)) fail("INVALID_COMMAND", "요청을 확인해 주세요.", "invalid-argument");
+            if (!request || typeof request !== "object" || !Object.hasOwn(routes, request.command) || !request.payload || typeof request.payload !== "object" || Array.isArray(request.payload)) fail("INVALID_COMMAND", "요청을 확인해 주세요.", "invalid-argument");
             if (Buffer.byteLength(JSON.stringify(request)) > 150000) fail("REQUEST_TOO_LARGE", "요청 내용이 너무 길어요.", "invalid-argument");
             const p = request.payload;
             if (["uid", "ownerUid", "authorUid", "teacherId", "studentId", "role"].some(k => Object.hasOwn(p, k))) fail("FORGED_IDENTITY", "요청에 권한 정보를 지정할 수 없어요.", "permission-denied");
-            return wire(await handlers[request.command](uid, p, name));
-        }
+            return wire(await routes[request.command](uid, p, name));
+    }
+    return {
+        dispatch: (uid, request, name) => dispatch(handlers, uid, request, name),
+        dispatchLearning: (uid, request) => dispatch(learning.handlers, uid, request),
+        acceptLectureResult: learning.acceptLectureResult
     };
 }
 module.exports = {

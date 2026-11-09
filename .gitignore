@@ -19,3 +19,5 @@ functions/node_modules/
 *-debug.*.log
 .firebase/
 .npm-cache/
+/.env.integrations.local
+/functions/.secret.local

@@ -108,6 +108,9 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
 
                         public void afterTextChanged(Editable e) {}
                     });
+            com.google.android.material.button.MaterialButton ai =
+                    ui.button(shell.content, "AI 답변 초안 만들기", false, () -> {});
+            ai.setOnClickListener(view -> aiText(view, input, "mode", "answer", "questionId", screen.questionId));
             status = ui.note(shell.content, "원고 저장과 답변 공개는 별개예요.");
             ui.button(shell.dock, "교수 초안 서버 저장", false, () -> send(false));
             ui.button(shell.dock, "답변 공개", true, () -> send(true));

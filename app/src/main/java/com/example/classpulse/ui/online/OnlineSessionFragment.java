@@ -38,6 +38,13 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                 ? "수업 종료 · 질문과 답변을 이어가요"
                                 : "지금: " + topicTitle(p.optString("currentTopicId")));
         showNotice();
+        boolean ended = "ENDED".equals(s.optString("status"));
+        if (teacher || ended) {
+            ui.button(shell.content, teacher ? "녹음·수업 자료" : "수업 원문·복습 자료",
+                    false, () -> open("online_material"));
+            ui.button(shell.content, teacher ? "복습 퀴즈 작성" : "복습 퀴즈 풀기",
+                    false, () -> open("online_quizzes"));
+        }
         if (teacher) {
             if ("READY".equals(s.optString("status"))) {
                 ui.button(shell.content, "대주제 편집", false, () -> open("online_edit"));
@@ -47,6 +54,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
             if (!"ENDED".equals(s.optString("status")))
                 ui.button(shell.content, "링크·코드로 초대", false, () -> open("online_invite"));
             if ("LIVE".equals(s.optString("status"))) {
+                ui.note(shell.content, LectureRecording.isRecording(repo.uid, screen.lessonId)
+                        ? "이 수업을 녹음하고 있어요."
+                        : "녹음하려면 녹음·수업 자료에서 수업 녹음 시작을 눌러 주세요.");
                 ui.button(
                                 shell.dock,
                                 busy ? "진도 확인 중…" : "완료하고 다음 주제",
@@ -271,6 +281,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
         busy = true;
         render();
         final long token = viewToken();
+        final android.content.Context appContext = requireContext().getApplicationContext();
+        final String recordingOwner = repo.uid;
+        final String lessonId = screen.lessonId;
         repo.command(
                 "changeProgress",
                 screen.lessonId,
@@ -278,6 +291,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 new OnlineRepository.Callback() {
                     public void success(JSONObject v) {
                         busy = false;
+                        if ("END".equals(action) && LectureRecording.isRecording(recordingOwner, lessonId)) {
+                            LectureRecording.stop(appContext);
+                        }
                         if (current(token)) render();
                     }
 

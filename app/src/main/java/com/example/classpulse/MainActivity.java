@@ -329,6 +329,12 @@ public final class MainActivity extends AppCompatActivity {
             case "online_question":
                 f = new OnlineQuestionDetailFragment();
                 break;
+            case "online_material":
+                f = new OnlineMaterialsFragment();
+                break;
+            case "online_quizzes":
+                f = new OnlineQuizzesFragment();
+                break;
             case "home":
                 f = new HomeFragment();
                 break;

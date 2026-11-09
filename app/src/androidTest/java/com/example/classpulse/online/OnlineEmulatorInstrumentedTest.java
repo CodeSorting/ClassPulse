@@ -406,6 +406,64 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void studentOpensPublishedQuizAndSubmitsForServerGrading() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid");
+        join(teacher, student, sid);
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "END", "expectedProgressVersion", 1));
+        mutate(teacher, "learning.saveLearningQuiz", OnlineJson.values(
+                "sessionId", sid, "topicId", fixture.optString("first"), "title", "확률 복습 테스트",
+                "baseRevision", 0, "publish", true,
+                "items", new JSONArray().put(OnlineJson.values("prompt", "가능한 결과 수는?",
+                        "choices", new JSONArray().put("한 개").put("두 개").put("세 개").put("네 개"),
+                        "correctIndex", 1, "explanation", "가능한 결과를 세면 두 개예요."))));
+        legacyScope = new LocalDatabaseScope(context);
+        context.getSharedPreferences("local_demo", 0).edit().putString("role", "NONE").commit();
+        main(() -> {
+            authScope = new EmulatorAuthScope(student.auth);
+            OnlineServices.close();
+            OnlineServices.testFactory = (c, uid) -> {
+                assertEquals(student.uid, uid);
+                return student.repo;
+            };
+        });
+        scenario = ActivityScenario.launch(MainActivity.class);
+        scenario.onActivity(a -> a.openOnline("online_home"));
+        scenario.onActivity(a -> a.navigate("online_session", ScreenContext.empty().forLesson(sid)));
+        await(() -> cached(student, sid).optString("status").equals("ENDED"));
+        onView(withText("복습 퀴즈 풀기")).perform(scrollTo(), click());
+        await(() -> hasText("확률 복습 테스트 · 풀기"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withText("확률 복습 테스트 · 풀기")).perform(scrollTo(), click());
+        try {
+            await(() -> hasText("가능한 결과 수는?"));
+        } catch (AssertionError error) {
+            capture("online-quiz-question-timeout");
+            throw error;
+        }
+        onView(withText("가능한 결과를 세면 두 개예요.")).check(
+                androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+        onView(withText("두 개")).perform(scrollTo(), click());
+        onView(withText("풀이 제출")).perform(scrollTo(), click());
+        await(() -> hasText("가능한 결과를 세면 두 개예요."));
+        assertEquals(1, call(student, "learning.getLearningQuizzes", OnlineJson.values("sessionId", sid))
+                .getJSONArray("attempts").getJSONObject(0).getInt("score"));
+    }
+
+    private boolean hasText(String text) {
+        try {
+            onView(withText(text)).check(matches(isDisplayed()));
+            return true;
+        } catch (androidx.test.espresso.NoMatchingViewException | AssertionError error) {
+            return false;
+        }
+    }
+
+    @Test
     public void localDraftSurvivesTransportFailureThenRetriesWithoutDuplicatingSubmission()
             throws Exception {
         Client teacher = client(), student = client();

@@ -8,6 +8,7 @@ import com.google.android.gms.tasks.Task;
 import org.json.JSONObject;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /** Managed Firebase only: no custom HTTP host or credentials embedded in the app. */
 public final class FirebaseOnlineTransport implements OnlineTransport {
@@ -58,9 +59,12 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
     @Override
     public CompletableFuture<JSONObject> call(String command, JSONObject payload) {
         CompletableFuture<JSONObject> out = new CompletableFuture<>();
-        functions
-                .getHttpsCallable("classPulse")
-                .call(OnlineJson.map(OnlineJson.values("command", command, "payload", payload)))
+        boolean learning = command.startsWith("learning.");
+        String action = learning ? command.substring("learning.".length()) : command;
+        HttpsCallableReference callable = functions.getHttpsCallable(learning ? "classPulseLearning" : "classPulse");
+        if (learning) callable.withTimeout(180, TimeUnit.SECONDS);
+        callable
+                .call(OnlineJson.map(OnlineJson.values("command", action, "payload", payload)))
                 .addOnCompleteListener(task -> {
                     if (task.isSuccessful()) {
                         try {
