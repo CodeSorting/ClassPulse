@@ -1,5 +1,46 @@
 # ClassPulse
 
+Java + XML Views로 구현한 Android 수업 소통 앱입니다. Room을 사용하는 기기 내 시연과 Firebase 계정으로 접속하는 온라인 수업을 구분합니다.
+
+## 기본 화면과 수업 기능
+
+- Google 로그인 후 **수업 · 내 기록 · 내 정보**의 하단 세 탭으로 이동합니다. 로그아웃은 내 정보 화면에 있습니다.
+- 교수는 수업과 대주제를 만들고 4자리 코드 또는 초대 링크를 공유합니다. 학생은 수업 정보를 확인한 뒤 명시적으로 참여합니다.
+- 교수의 대주제 진행에 따라 학생은 네 가지 반응과 주제별 질문을 남깁니다. 교수는 답변 원고를 검토한 뒤 공개합니다.
+- 학생에게 강의 STT 전문을 실시간으로 보내지 않습니다. 교수의 녹음은 수업 후 STT로 변환하고, 교수가 검토·공개한 전체 원문과 요약을 학생에게 제공합니다.
+- 김진호의 녹음·STT·AI·복습 퀴즈 온라인 연동 코드가 포함돼 있습니다. 사용하려면 아래의 Firebase Storage·Functions·서버 키 설정이 필요합니다.
+- 기존 Room 기반 질문·개인 기록 캐시는 유지합니다. 새 온라인 원문·요약·퀴즈의 Room 다운로드와 오프라인 복습 연결은 후속 작업입니다.
+
+시연 수업 코드는 **4821**입니다. 온라인 수업 코드는 교수가 해당 수업에서 발급합니다. 로그인한 온라인 수업과 같은 기기의 로컬 시연은 별도 경로입니다.
+
+## Android 빌드
+
+Firebase Console에서 이 Android 앱에 맞는 `google-services.json`을 받아 `app/`에 둡니다. Google 로그인에는 빌드에 사용하는 서명 인증서의 SHA-1 등록이 필요합니다. 팀원의 개발 서명이 다르면 해당 SHA-1도 등록합니다. Firebase 앱 구성 파일은 별도로 전달하며, 서버용 CLOVA·OpenAI 비밀키는 앱이나 Git에 넣지 않습니다.
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+
+APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다. 단위 테스트는 `.\gradlew.bat :app:testDebugUnitTest`로 실행합니다.
+
+## 검증 범위와 남은 확인
+
+2026-11-11 김진호 커밋 `9b651c5`의 별도 사본에서 APK 빌드, JVM 단위 테스트 17개, Firebase Emulator 서버·권한 테스트 22개가 통과했습니다. Android 기기 테스트 코드는 컴파일을 확인했습니다.
+
+이 검증은 실제 휴대폰 두 대의 통합 테스트나 유료 CLOVA·GPT API 전체 동작 확인을 대신하지 않습니다. 서버 테스트는 `demo-classpulse` 에뮬레이터와 외부 API 모형을 사용합니다. 실제 기기에서 녹음 중단·복구와 수업 후 원문·요약·퀴즈 동선을 추가 확인합니다.
+
+STT 요청의 일일 사용량 제한과 녹음 원본의 보관·삭제 정책도 공개 운영 전에 정해야 합니다.
+
+## 개발 PC의 로컬 안내서
+
+기존 제작 과정과 설계 자료는 개발 PC의 `AGENTS.md`와 `docs/`에 보관돼 있습니다. 이 파일들은 이번 병합의 GitHub 업로드 대상에 포함하지 않으므로, 새로 clone한 팀원에게는 별도 전달이 필요합니다. 문서의 과거 구현 상태는 작성 시점의 기록으로 읽습니다.
+
+- 입문 안내: `docs/ClassPulse_제작과정_전체안내서.md`, `docs/guide/README.md`
+- 제품 요구와 인계: `docs/PRODUCT_SPEC.md`, `docs/HANDOFF.md`
+- 구조와 데이터 설계: `docs/ARCHITECTURE.md`, `docs/FIREBASE_DATA_DESIGN.md`
+- Firebase 연결 및 검증: `docs/FIREBASE_IMPLEMENTATION.md`, `docs/FIREBASE_LIVE_TEST.md`, `docs/QA_CHECKLIST.md`, `docs/verification/STATUS.md`
+- v6 UI 참고 원본: `docs/design/v6/ClassPulse_v6_Full_UI.svg`
+
 ## 10주차 CLOVA Speech·GPT 연동 확인
 
 프로젝트 루트에서 Node.js 22 이상으로 실행합니다. 서버의 API 호출 형식과 오류 처리를 확인하는 테스트는 API 키 없이 실행할 수 있습니다.
