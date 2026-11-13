@@ -12,6 +12,10 @@
     <!-- 상태 배지용 글자색·배경색 (재민 UI 수정) -->
     <color name="cp_warning_ink">#8A5A00</color>
     <color name="cp_danger_soft">#F8E5E3</color>
+    <!-- Touch and keyboard focus feedback must remain visible on both button fills. -->
+    <color name="cp_primary_pressed">#103A32</color>
+    <color name="cp_control_pressed">#BEDACB</color>
+    <color name="cp_danger_pressed">#EBC6C2</color>
     <color name="cp_neutral_soft">#EEF2EF</color>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>

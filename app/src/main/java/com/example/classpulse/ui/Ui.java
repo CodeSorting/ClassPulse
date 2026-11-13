@@ -137,18 +137,38 @@ public final class Ui {
                 && !label.endsWith("…");
     }
 
+    /** Keep disabled controls distinct, even when their normal tint is set in Java. */
+    private ColorStateList contentColors(int normal) {
+        return new ColorStateList(
+                new int[][]{new int[]{-android.R.attr.state_enabled}, new int[]{}},
+                new int[]{color(R.color.cp_muted), normal});
+    }
+
+    /** A visible pressed/focused fill complements Material's native touch ripple. */
+    private ColorStateList buttonBackground(int normal, int pressed) {
+        return new ColorStateList(
+                new int[][]{
+                    new int[]{-android.R.attr.state_enabled},
+                    new int[]{android.R.attr.state_pressed},
+                    new int[]{android.R.attr.state_focused},
+                    new int[]{}
+                },
+                new int[]{color(R.color.cp_neutral_soft), pressed, pressed, normal});
+    }
+
     private void styleButton(MaterialButton button, String label, boolean primary, Runnable click) {
         button.setText(label);
         boolean danger = !primary && destructive(label);
-        button.setTextColor(
-                color(primary ? R.color.cp_surface : danger ? R.color.cp_danger : R.color.cp_brand));
-        button.setBackgroundTintList(
-                ColorStateList.valueOf(
-                        color(primary ? R.color.cp_brand : danger ? R.color.cp_danger_soft : R.color.cp_mint)));
+        button.setTextColor(contentColors(
+                color(primary ? R.color.cp_surface : danger ? R.color.cp_danger : R.color.cp_brand)));
+        button.setBackgroundTintList(buttonBackground(
+                color(primary ? R.color.cp_brand : danger ? R.color.cp_danger_soft : R.color.cp_mint),
+                color(primary ? R.color.cp_primary_pressed : danger ? R.color.cp_danger_pressed : R.color.cp_control_pressed)));
+        button.setRippleColor(ContextCompat.getColorStateList(context,
+                primary ? R.color.cp_on_dark_ripple : R.color.cp_control_ripple));
         button.setStrokeWidth(
                 primary ? 0 : Math.round(context.getResources().getDisplayMetrics().density));
-        button.setStrokeColor(
-                ColorStateList.valueOf(color(danger ? R.color.cp_danger_soft : R.color.cp_line)));
+        button.setStrokeColor(contentColors(color(danger ? R.color.cp_danger_soft : R.color.cp_line)));
         button.setOnClickListener(v -> {
             if (click != null) click.run();
         });
@@ -164,9 +184,10 @@ public final class Ui {
 
     public MaterialButton googleButton(LinearLayout parent, String label, Runnable click) {
         MaterialButton button = button(parent, label, false, click);
-        button.setBackgroundTintList(ColorStateList.valueOf(android.graphics.Color.WHITE));
-        button.setTextColor(android.graphics.Color.rgb(31, 31, 31));
-        button.setStrokeColor(ColorStateList.valueOf(android.graphics.Color.rgb(116, 119, 117)));
+        button.setBackgroundTintList(buttonBackground(
+                android.graphics.Color.WHITE, color(R.color.cp_control_pressed)));
+        button.setTextColor(contentColors(android.graphics.Color.rgb(31, 31, 31)));
+        button.setStrokeColor(contentColors(android.graphics.Color.rgb(116, 119, 117)));
         button.setStrokeWidth(
                 Math.max(1, Math.round(context.getResources().getDisplayMetrics().density)));
         button.setIcon(ContextCompat.getDrawable(context, R.drawable.google_sign_in_g));

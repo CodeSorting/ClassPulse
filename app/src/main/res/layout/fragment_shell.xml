@@ -21,7 +21,7 @@
             android:src="@drawable/ic_cp_back"
             android:scaleType="center"
             app:tint="@color/cp_brand"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_cp_icon_button"
             android:contentDescription="@string/back"
         />
         <TextView

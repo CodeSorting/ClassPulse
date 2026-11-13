@@ -4,6 +4,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import androidx.activity.EdgeToEdge;
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -34,6 +36,7 @@ public final class MainActivity extends AppCompatActivity {
     private long credentialRequest = -1;
     private String onlineUiUid = "";
     private boolean loginDestinationPending;
+    private AlertDialog exitDialog;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -63,6 +66,12 @@ public final class MainActivity extends AppCompatActivity {
             else navigateRoot(startRoute());
         }
         auth.state().observe(this, ignored -> reconcileAccountRoute());
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                backToPreviousScreenOrConfirmExit();
+            }
+        });
     }
 
     private String startRoute() {
@@ -102,13 +111,18 @@ public final class MainActivity extends AppCompatActivity {
                         .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
                 || getSupportFragmentManager().isStateSaved()) return;
         Fragment current = getSupportFragmentManager().findFragmentById(R.id.main);
-        if (current != null
+        boolean onlineScreen = current != null
                 && current.getTag() != null
-                && current.getTag().startsWith("online_")
+                && current.getTag().startsWith("online_");
+        boolean accountScreen = current != null && "account".equals(current.getTag());
+        boolean accountChanged = !onlineUiUid.isEmpty()
                 && (auth.current().user == null
-                        || !onlineUiUid.isEmpty()
-                                && !onlineUiUid.equals(auth.current().user.uid))) {
+                        || !onlineUiUid.equals(auth.current().user.uid));
+        if ((onlineScreen && auth.current().user == null)
+                || ((onlineScreen || accountScreen) && accountChanged)) {
+            // Tab history belongs to one UID and must never survive an account change.
             navigateRoot("account");
+            onlineUiUid = "";
             return;
         }
         if (current != null
@@ -121,14 +135,18 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openSignedInDestination() {
         loginDestinationPending = false;
-        openOnline("online_home");
+        openOnlineRoot("online_home");
         if (!OnlineInvites.token(vm.pendingInvite()).isEmpty())
             show("online_join", true, ScreenContext.empty());
     }
 
     public void openGoogleAccount() {
+        Fragment current = getSupportFragmentManager().findFragmentById(R.id.main);
+        boolean fromWelcome = "NONE".equals(vm.role())
+                && current != null && "welcome".equals(current.getTag());
         vm.setRole("NONE");
-        navigateRoot("account");
+        if (fromWelcome) show("account", true, ScreenContext.empty());
+        else navigateRoot("account");
         if (auth.current().user == null) startGoogleLogin();
     }
 
@@ -161,6 +179,8 @@ public final class MainActivity extends AppCompatActivity {
         OnlineServices.close();
         vm.setRole("NONE");
         auth.signOut(credentials);
+        navigateRoot("account");
+        onlineUiUid = "";
     }
 
     public OnlineRepository onlineRepository() {
@@ -172,6 +192,26 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     public void openOnline(String target) {
+        if (auth.current().user == null) {
+            openGoogleAccount();
+            return;
+        }
+        Fragment current = getSupportFragmentManager().findFragmentById(R.id.main);
+        boolean sameAccountHistory = "NONE".equals(vm.role())
+                && (onlineUiUid.isEmpty() || onlineUiUid.equals(auth.current().user.uid))
+                && current != null && current.getTag() != null
+                && (current.getTag().startsWith("online_") || "account".equals(current.getTag()));
+        onlineUiUid = auth.current().user.uid;
+        vm.setRole("NONE");
+        if (sameAccountHistory) {
+            if (target.equals(current.getTag())
+                    && ScreenContext.from(current.getArguments()).lessonId.isEmpty()) return;
+            show(target, true, ScreenContext.empty());
+        } else navigateRoot(target);
+    }
+
+    /** Authentication and cold invites establish a new, account-owned history root. */
+    private void openOnlineRoot(String target) {
         if (auth.current().user == null) {
             openGoogleAccount();
             return;
@@ -188,8 +228,7 @@ public final class MainActivity extends AppCompatActivity {
         Fragment current = getSupportFragmentManager().findFragmentById(R.id.main);
         if (current != null
                 && target.equals(current.getTag())
-                && ScreenContext.from(current.getArguments()).lessonId.isEmpty()
-                && getSupportFragmentManager().getBackStackEntryCount() == 0) return;
+                && ScreenContext.from(current.getArguments()).lessonId.isEmpty()) return;
         openOnline(target);
     }
 
@@ -215,6 +254,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (exitDialog != null) exitDialog.dismiss();
         if (credentialCancellation != null) credentialCancellation.cancel();
         if (auth != null && credentialRequest >= 0)
             auth.abandonCredentialRequest(credentialRequest);
@@ -420,6 +460,23 @@ public final class MainActivity extends AppCompatActivity {
                         .replace(R.id.main, f, target);
         if (stack) transaction.addToBackStack(target);
         transaction.commit();
+    }
+
+    private void backToPreviousScreenOrConfirmExit() {
+        if (isFinishing() || isDestroyed()) return;
+        FragmentManager manager = getSupportFragmentManager();
+        if (manager.isStateSaved()) return;
+        manager.executePendingTransactions();
+        if (manager.popBackStackImmediate()) return;
+        if (exitDialog != null && exitDialog.isShowing()) return;
+        exitDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("앱 종료")
+                .setMessage("종료하시겠습니까?")
+                .setNegativeButton("아니요", null)
+                .setPositiveButton("예", (dialog, which) -> finish())
+                .create();
+        exitDialog.setOnDismissListener(dialog -> exitDialog = null);
+        exitDialog.show();
     }
 
     public void back() {

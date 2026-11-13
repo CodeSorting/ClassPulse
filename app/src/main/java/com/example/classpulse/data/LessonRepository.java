@@ -541,6 +541,8 @@ public final class LessonRepository {
                     LessonRow l = requireLesson(sessionId);
                     requireMember(l.id, uid);
                     requireLive(l);
+                    if (!l.questionsOpen)
+                        throw new IllegalStateException("교수님이 질문·반응 접수를 마감했어요.");
                     if (l.currentVisitId == null)
                         throw new IllegalStateException("지금 진행 중인 대주제가 없어요.");
                     if (!REACTION_TYPES.contains(type))

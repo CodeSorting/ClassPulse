@@ -158,6 +158,27 @@ public class LessonRepositoryInstrumentedTest {
     }
 
     @Test
+    public void closingQuestionIntakeRejectsReactionsWithoutChangingTheRoomSchema() {
+        String id = create();
+        join(id);
+        ok(cb -> repo.startLesson(id, cb));
+        ok(cb -> repo.react(id, UID, Models.UNDERSTANDING, cb));
+        LessonRow row = db.lessonDao().lesson(id);
+        row.questionsOpen = false;
+        db.lessonDao().updateLesson(row);
+        assertTrue(failure((LessonRepository.Callback<Void> cb) ->
+                repo.react(id, UID, Models.SPEED, cb)).contains("접수를 마감"));
+        assertEquals(1, lesson(id).reactions.size());
+        row.questionsOpen = true;
+        db.lessonDao().updateLesson(row);
+        ok(cb -> repo.react(id, UID, Models.SPEED, cb));
+        assertEquals(2, lesson(id).reactions.size());
+        while (lesson(id).currentVisitId != null) ok(cb -> repo.completeTopic(id, cb));
+        failure((LessonRepository.Callback<Void> cb) -> repo.react(id, UID, Models.TERM, cb));
+        assertEquals(2, lesson(id).reactions.size());
+    }
+
+    @Test
     public void reactionIsIdempotentPerVisitAndRequiresMembership() {
         String id = create();
         ok(cb -> repo.startLesson(id, cb));

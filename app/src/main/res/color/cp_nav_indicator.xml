@@ -1,5 +1,8 @@
-<!-- 하단 탭 배경: 선택된 탭에만 연한 민트색 알약 모양 표시 -->
+<!-- Press/focus comes before selection so every tab visibly responds. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:color="@color/cp_mint" android:state_selected="true" />
+    <item android:state_enabled="false" android:color="@color/cp_neutral_soft" />
+    <item android:state_pressed="true" android:color="@color/cp_control_pressed" />
+    <item android:state_focused="true" android:color="@color/cp_control_pressed" />
+    <item android:state_selected="true" android:color="@color/cp_mint" />
     <item android:color="@android:color/transparent" />
 </selector>

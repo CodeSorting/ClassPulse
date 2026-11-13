@@ -27,6 +27,8 @@ import static org.junit.Assert.*;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.*;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
+import static org.hamcrest.Matchers.not;
 import static androidx.test.espresso.matcher.ViewMatchers.*;
 
 @RunWith(AndroidJUnit4.class)
@@ -352,6 +354,84 @@ public class OnlineEmulatorInstrumentedTest {
                 "분모는 조건 사건의 확률입니다.",
                 OnlineJson.object(student.db.store().document(sid, "QUESTION", qid).json)
                         .optString("answer"));
+    }
+
+    private void showSession(Client account, String sid) throws Exception {
+        legacyScope = new LocalDatabaseScope(context);
+        context.getSharedPreferences("local_demo", 0).edit().putString("role", "NONE").commit();
+        main(() -> {
+            authScope = new EmulatorAuthScope(account.auth);
+            OnlineServices.close();
+            OnlineServices.testFactory = (c, uid) -> {
+                assertEquals(account.uid, uid);
+                return account.repo;
+            };
+        });
+        scenario = ActivityScenario.launch(MainActivity.class);
+        scenario.onActivity(a -> a.openOnline("online_home"));
+        scenario.onActivity(a -> a.navigate("online_session", ScreenContext.empty().forLesson(sid)));
+        await(() -> cached(account, sid).has("progressVersion"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
+    @Test
+    public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllFourReactions()
+            throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject f = create(teacher);
+        String sid = f.optString("sid");
+        join(teacher, student, sid);
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        JSONObject last = mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
+        showSession(student, sid);
+        await(() -> {
+            JSONObject p = cached(student, sid).optJSONObject("progress");
+            return p != null && f.optString("second").equals(p.optString("currentTopicId"));
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withText("완료하고 다음 주제")).check(doesNotExist());
+        onView(withText("다음 대주제로 넘어가기")).check(doesNotExist());
+        onView(withText("마지막 대주제 완료")).check(doesNotExist());
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+            onView(withText(label)).check(matches(isEnabled()));
+        JSONObject closed = mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", last.getJSONObject("session").optLong("revision"), "open", false));
+        await(() -> !cached(student, sid).optBoolean("questionsOpen", true));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+            onView(withText(label)).check(matches(not(isEnabled())));
+        mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", closed.getJSONObject("session").optLong("revision"), "open", true));
+        await(() -> cached(student, sid).optBoolean("questionsOpen"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+            onView(withText(label)).check(matches(isEnabled()));
+    }
+
+    @Test
+    public void professorCompletesTheLastTopicWithoutShowingANextTopicAction() throws Exception {
+        Client teacher = client();
+        JSONObject f = create(teacher);
+        String sid = f.optString("sid");
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
+        showSession(teacher, sid);
+        await(() -> teacher.db.store().document(sid, "TOPIC", f.optString("second")) != null);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withText("완료하고 다음 주제")).check(doesNotExist());
+        onView(withText("마지막 대주제 완료")).perform(click());
+        await(() -> {
+            JSONObject p = cached(teacher, sid).optJSONObject("progress");
+            return p != null && p.isNull("currentVisitId");
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withText("완료하고 다음 주제")).check(doesNotExist());
+        onView(withText("마지막 대주제 완료")).check(doesNotExist());
+        onView(withText("재설명 마치고 원래 주제로")).check(doesNotExist());
     }
 
     @Test
@@ -786,6 +866,15 @@ public class OnlineEmulatorInstrumentedTest {
         onView(withId(R.id.nav_records)).perform(click());
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         onView(withText("온라인 통계학 수업")).perform(click());
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        scenario.onActivity(a -> {
+            a.getSupportFragmentManager().executePendingTransactions();
+            androidx.fragment.app.Fragment selected =
+                    a.getSupportFragmentManager().findFragmentById(R.id.main);
+            assertEquals("online_records", selected.getTag());
+            assertEquals("Selecting the lesson must open its records before waiting for Room",
+                    sid, ScreenContext.from(selected.getArguments()).lessonId);
+        });
         await(() ->
                 student.db.store().document(sid, "QUESTION", question) != null
                         && student.db.store().draft(sid, "QUESTION_DRAFT", draft) != null
@@ -808,8 +897,36 @@ public class OnlineEmulatorInstrumentedTest {
             assertEquals(
                     "online_home",
                     a.getSupportFragmentManager().findFragmentById(R.id.main).getTag());
-            assertEquals(0, a.getSupportFragmentManager().getBackStackEntryCount());
+            assertEquals(4, a.getSupportFragmentManager().getBackStackEntryCount());
         });
+        String[] backRoutes = {"account", "online_records", "online_records", "online_home"};
+        String[] backLessons = {"", sid, "", ""};
+        for (int index = 0; index < backRoutes.length; index++) {
+            androidx.test.espresso.Espresso.pressBack();
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            final int backIndex = index;
+            scenario.onActivity(a -> {
+                androidx.fragment.app.Fragment current =
+                        a.getSupportFragmentManager().findFragmentById(R.id.main);
+                assertEquals(backRoutes[backIndex], current.getTag());
+                assertEquals(backLessons[backIndex],
+                        ScreenContext.from(current.getArguments()).lessonId);
+                assertEquals(3 - backIndex,
+                        a.getSupportFragmentManager().getBackStackEntryCount());
+            });
+            if (index == 0) {
+                onView(withId(R.id.screen_title)).check(matches(withText("내 정보")));
+                onView(withId(R.id.nav_settings)).check(matches(isSelected()));
+            } else if (index == 1) {
+                onView(withText("분모를 다시 확인")).perform(scrollTo()).check(matches(isDisplayed()));
+                onView(withId(R.id.nav_records)).check(matches(isSelected()));
+            } else if (index == 2) {
+                onView(withText("수업별 기록을 확인해요")).check(matches(isDisplayed()));
+                onView(withId(R.id.nav_records)).check(matches(isSelected()));
+            } else {
+                onView(withId(R.id.nav_home)).check(matches(isSelected()));
+            }
+        }
     }
 
     @Test

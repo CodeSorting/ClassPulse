@@ -1,0 +1,9 @@
+<!-- Bounded touch feedback for the 48dp toolbar back control. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/cp_control_ripple">
+    <item android:id="@android:id/mask">
+        <shape android:shape="oval">
+            <solid android:color="@android:color/white" />
+        </shape>
+    </item>
+</ripple>

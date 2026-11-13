@@ -263,7 +263,7 @@ public final class LectureRecording extends Service {
         PendingIntent stop = PendingIntent.getService(this, 0,
                 new Intent(this, LectureRecording.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
         ServiceCompat.startForeground(this, NOTIFICATION_ID, new NotificationCompat.Builder(this, CHANNEL)
-                        .setSmallIcon(R.mipmap.ic_launcher)
+                        .setSmallIcon(R.drawable.ic_stat_classpulse)
                         .setContentTitle("ClassPulse 수업 녹음 중")
                         .setContentText("수업 화면을 나가도 녹음이 이어져요.")
                         .setContentIntent(open)

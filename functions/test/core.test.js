@@ -319,6 +319,50 @@ test("reaction deduplication, distinct student counts, revisit and stale-visit r
     assert.equal(summary.uniqueReactingStudents, 1);
     assert.equal(summary.uniqueStudentsByType.UNDERSTANDING, 1);
 });
+test("closing question intake also rejects delayed reactions; reopening accepts both without duplicate counts", async () => {
+    const f = await fixture();
+    await join(student, f);
+    const started = await start(f);
+    const accepted = {
+        operationId: op(), sessionId: f.sid, topicId: f.topics[0].id,
+        visitId: started.session.progress.currentVisitId, type: "UNDERSTANDING"
+    };
+    await invoke(student, "submitReaction", accepted);
+    // This payload represents a tap queued before the teacher closes intake.
+    const delayed = { ...accepted, operationId: op(), type: "TERM" };
+    const closed = await mutate(owner, "setQuestionsOpen", {
+        sessionId: f.sid, baseRevision: started.session.revision, open: false
+    });
+    await expectReason(() => invoke(student, "submitReaction", delayed), "REACTIONS_CLOSED");
+    await expectReason(() => mutate(student, "submitQuestion", {
+        sessionId: f.sid, id: op(), topicId: f.topics[0].id, text: "마감 후 질문", baseRevision: 0
+    }), "QUESTIONS_CLOSED");
+    await expectReason(() => mutate(student, "setQuestionsOpen", {
+        sessionId: f.sid, baseRevision: closed.session.revision, open: true
+    }), "OWNER_REQUIRED");
+    // Lost ACKs for a previously committed reaction remain safe to recover.
+    await invoke(student, "submitReaction", accepted);
+    assert.equal((await db.collection(`sessions/${f.sid}/reactionEvents`).get()).size, 1);
+    assert.equal((await db.doc(`sessions/${f.sid}/analytics/summary`).get()).data().reactionEventCount, 1);
+    const draftId = op();
+    await mutate(student, "savePersonalDraft", {
+        sessionId: f.sid, id: draftId, topicId: f.topics[0].id, text: "마감 중에도 남기는 초안", baseRevision: 0
+    });
+    assert.equal((await db.doc(`users/${student}/lessonData/${f.sid}/questionDrafts/${draftId}`).get()).data().text,
+        "마감 중에도 남기는 초안");
+    await expectReason(() => mutate(owner, "setQuestionsOpen", {
+        sessionId: f.sid, baseRevision: started.session.revision, open: true
+    }), "VERSION_CONFLICT");
+    await mutate(owner, "setQuestionsOpen", {
+        sessionId: f.sid, baseRevision: closed.session.revision, open: true
+    });
+    await mutate(student, "submitReaction", { ...delayed, operationId: op() });
+    await mutate(student, "submitQuestion", {
+        sessionId: f.sid, id: draftId, topicId: f.topics[0].id, text: "마감 중에도 남기는 초안", baseRevision: 1
+    });
+    assert.equal((await db.doc(`sessions/${f.sid}/analytics/summary`).get()).data().reactionEventCount, 2);
+});
+
 test("personal drafts stay private; submissions pin topic and reject edits; publish has no author fields", async () => {
     const f = await fixture();
     await join(student, f);

@@ -1,0 +1,5 @@
+<!-- Native ripple for light controls and cards. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="@android:color/transparent" />
+    <item android:color="#40174F45" />
+</selector>

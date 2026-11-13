@@ -133,7 +133,8 @@ public final class LiveLessonFragment extends BaseFragment {
         String primary =
                 lesson.resumeTopicId != null && !lesson.resumeTopicId.isEmpty()
                         ? "원래 진행 주제로 돌아가기"
-                        : current == null || current.completed ? "모든 주제 완료 · 수업 마치기" : "완료하고 다음 주제";
+                        : current == null || current.completed ? "모든 주제 완료 · 수업 마치기"
+                        : hasNextTopic(lesson, current) ? "완료하고 다음 주제" : "마지막 대주제 완료";
         MaterialButton next =
                 ui.button(
                         dock,
@@ -179,7 +180,10 @@ public final class LiveLessonFragment extends BaseFragment {
                 "질문 작성",
                 () -> newQuestion(current == null ? null : current.id));
         ui.note(content, "완료된 대주제에도 질문할 수 있어요. 아래 반응은 지금 진행 중인 대주제에 연결됩니다.");
-        ui.text(dock, "익명으로 지금의 이해 상태를 알려요");
+        boolean accepting = lesson.questionsOpen && current != null && lesson.currentVisitId != null;
+        ui.text(dock, accepting ? "익명으로 지금의 이해 상태를 알려요"
+                : !lesson.questionsOpen ? "교수님이 질문·반응 접수를 마감했어요."
+                : "모든 대주제를 마쳐 반응 접수가 끝났어요.");
         String[] labels = LABELS.clone();
         for (Models.Reaction r : lesson.reactions)
             if (vm.userId().equals(r.studentId) && safeEquals(r.visitId, lesson.currentVisitId))
@@ -197,6 +201,18 @@ public final class LiveLessonFragment extends BaseFragment {
                 () -> react(lesson, TYPES[2]),
                 labels[3],
                 () -> react(lesson, TYPES[3]));
+        for (int i = 1; i < dock.getChildCount(); i++) {
+            View pair = dock.getChildAt(i);
+            View left = pair.findViewById(R.id.left), right = pair.findViewById(R.id.right);
+            if (left != null) left.setEnabled(accepting);
+            if (right != null) right.setEnabled(accepting);
+        }
+    }
+
+    private boolean hasNextTopic(Models.Lesson lesson, Models.Topic current) {
+        for (Models.Topic topic : lesson.topics)
+            if (!topic.id.equals(current.id) && !topic.completed) return true;
+        return false;
     }
 
     private void newQuestion(@Nullable String topicId) {

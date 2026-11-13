@@ -150,7 +150,7 @@ public class GoogleLoginInstrumentedTest {
             AppViewModel demo = new ViewModelProvider(activity).get(AppViewModel.class);
             assertEquals("NONE", demo.role());
             assertEquals("", demo.userId());
-            assertEquals(0, activity.getSupportFragmentManager().getBackStackEntryCount());
+            assertEquals(1, activity.getSupportFragmentManager().getBackStackEntryCount());
         });
         onView(withText("시연 수업 참여 코드: 4821")).check(doesNotExist());
         capture("google-account-test-session");
@@ -391,7 +391,7 @@ public class GoogleLoginInstrumentedTest {
     }
 
     @Test
-    public void threeOnlineTabsRemainSelectedAndDoNotBuildAStack() throws Exception {
+    public void threeOnlineTabsRemainSelectedAndBackRestoresTheirHistory() throws Exception {
         main(() ->
                 auth.backend.user =
                         new AuthIdentity("firebase-user-a", "테스트 사용자", "a@example.test"));
@@ -416,7 +416,27 @@ public class GoogleLoginInstrumentedTest {
             checkRoute("online_home");
         }
         scenario.onActivity(activity ->
-                assertEquals(0, activity.getSupportFragmentManager().getBackStackEntryCount()));
+                assertEquals(9, activity.getSupportFragmentManager().getBackStackEntryCount()));
+        for (int i = 0; i < 3; i++) {
+            androidx.test.espresso.Espresso.pressBack();
+            idle();
+            checkRoute("account");
+            tabs();
+            onView(withId(R.id.nav_settings)).check(matches(isSelected()));
+            androidx.test.espresso.Espresso.pressBack();
+            idle();
+            checkRoute("online_records");
+            tabs();
+            onView(withId(R.id.nav_records)).check(matches(isSelected()));
+            androidx.test.espresso.Espresso.pressBack();
+            idle();
+            checkRoute("online_home");
+            tabs();
+            onView(withId(R.id.nav_home)).check(matches(isSelected()));
+            final int remaining = 6 - i * 3;
+            scenario.onActivity(activity -> assertEquals(remaining,
+                    activity.getSupportFragmentManager().getBackStackEntryCount()));
+        }
         capture("online-home-three-tabs");
         profile();
         capture("online-profile-three-tabs");

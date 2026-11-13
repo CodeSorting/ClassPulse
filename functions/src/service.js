@@ -710,6 +710,7 @@ function createService(db, {
                 }
             };
             if (s.status !== "LIVE" || s.progress.currentVisitId !== visitId || s.progress.currentTopicId !== topicId) fail("STALE_VISIT", "진도가 바뀌어 지난 구간의 반응은 접수하지 않았어요.");
+            if (s.questionsOpen === false) fail("REACTIONS_CLOSED", "교수님이 질문·반응 접수를 마감했어요.");
             const scopes = ["summary", `topic_${topicId}`, `visit_${visitId}`];
             const reads = [];
             for (const scope of scopes) {

@@ -1,11 +1,13 @@
 package com.example.classpulse.ui.online;
 
+import android.view.View;
+import com.example.classpulse.R;
 import com.example.classpulse.online.*;
 import org.json.*;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class OnlineSessionFragment extends OnlineFragment {
-    private boolean busy;
+    private boolean busy, intakeSettingsPending;
     private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
     private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
 
@@ -57,12 +59,19 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 ui.note(shell.content, LectureRecording.isRecording(repo.uid, screen.lessonId)
                         ? "이 수업을 녹음하고 있어요."
                         : "녹음하려면 녹음·수업 자료에서 수업 녹음 시작을 눌러 주세요.");
-                ui.button(
-                                shell.dock,
-                                busy ? "진도 확인 중…" : "완료하고 다음 주제",
-                                true,
-                                () -> progress("COMPLETE_NEXT", null))
-                        .setEnabled(!busy && !progress.isNull("currentVisitId"));
+                if (!p.isNull("currentVisitId") && !p.optString("currentVisitId").isEmpty()) {
+                    String nextLabel = !p.isNull("resumeTopicId") && !p.optString("resumeTopicId").isEmpty()
+                            ? "재설명 마치고 원래 주제로"
+                            : hasNextTopic(p) ? "완료하고 다음 주제" : "마지막 대주제 완료";
+                    ui.button(
+                                    shell.dock,
+                                    busy ? "진도 확인 중…" : nextLabel,
+                                    true,
+                                    () -> progress("COMPLETE_NEXT", null))
+                            .setEnabled(!busy);
+                } else {
+                    ui.note(shell.content, "모든 대주제를 마쳤어요. 수업 종료 또는 완료 주제 재설명을 선택해 주세요.");
+                }
                 if (!p.isNull("resumeTopicId"))
                     ui.button(shell.content, "원래 진행 주제로 복귀", false, () -> progress("RESUME", null))
                             .setEnabled(!busy);
@@ -98,21 +107,13 @@ public final class OnlineSessionFragment extends OnlineFragment {
                         counts == null ? 0 : counts.optInt(TYPES[i]),
                         most);
             ui.button(
-                    shell.content,
-                    s.optBoolean("questionsOpen") ? "질문 접수 마감" : "질문 접수 다시 열기",
-                    false,
-                    () ->
-                            repo.command(
-                                    "setQuestionsOpen",
-                                    screen.lessonId,
-                                    OnlineJson.values(
-                                            "sessionId",
-                                            screen.lessonId,
-                                            "baseRevision",
-                                            s.optLong("revision"),
-                                            "open",
-                                            !s.optBoolean("questionsOpen")),
-                                    callback(v -> render())));
+                            shell.content,
+                            intakeSettingsPending ? "접수 설정 중…"
+                                    : s.optBoolean("questionsOpen", true) ? "질문·반응 접수 마감" : "질문·반응 접수 다시 열기",
+                            false,
+                            () -> setQuestionsOpen(!s.optBoolean("questionsOpen", true)))
+                    .setEnabled(!intakeSettingsPending);
+            ui.note(shell.content, "접수를 마감하면 학생의 질문 제출과 네 가지 반응을 함께 막아요. 작성 중인 질문은 초안으로 보관돼요.");
         } else {
             ui.button(
                     shell.content,
@@ -139,8 +140,12 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                 false,
                                 v -> repo.saveMark(screen.lessonId, t, v, callback(x -> {})));
                     });
-            if ("LIVE".equals(s.optString("status")) && !p.isNull("currentVisitId")) {
-                ui.section(shell.content, "지금 수업은 어떤가요?", "반응은 교수에게 익명 집계로 전달돼요.");
+            if ("LIVE".equals(s.optString("status")) && !p.isNull("currentVisitId")
+                    && !p.optString("currentVisitId").isEmpty()) {
+                boolean accepting = s.optBoolean("questionsOpen", true);
+                ui.section(shell.content, "지금 수업은 어떤가요?", accepting
+                        ? "반응은 교수에게 익명 집계로 전달돼요."
+                        : "교수님이 질문·반응 접수를 마감했어요. 다시 열리면 참여할 수 있어요.");
                 for (int row = 0; row < 2; row++) {
                     int a = row * 2, b = a + 1;
                     ui.pair(
@@ -149,6 +154,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                             () -> react(a, progress),
                             reactionLabel(b, p.optString("currentVisitId")),
                             () -> react(b, progress));
+                    View pair = shell.dock.getChildAt(shell.dock.getChildCount() - 1);
+                    pair.findViewById(R.id.left).setEnabled(accepting);
+                    pair.findViewById(R.id.right).setEnabled(accepting);
                 }
             }
         }
@@ -246,7 +254,52 @@ public final class OnlineSessionFragment extends OnlineFragment {
         return LABELS[i];
     }
 
+    private boolean hasNextTopic(JSONObject progress) {
+        String current = progress.optString("currentTopicId");
+        for (OnlineDatabase.Document topic : topics())
+            if (!topic.id.equals(current)
+                    && !OnlineJson.contains(progress.optJSONArray("completedTopicIds"), topic.id)) return true;
+        return false;
+    }
+
+    private void setQuestionsOpen(boolean open) {
+        if (intakeSettingsPending) return;
+        JSONObject s = lesson();
+        intakeSettingsPending = true;
+        render();
+        final long token = viewToken();
+        repo.command(
+                "setQuestionsOpen", screen.lessonId,
+                OnlineJson.values("sessionId", screen.lessonId, "baseRevision", s.optLong("revision"), "open", open),
+                new OnlineRepository.Callback() {
+                    public void success(JSONObject value) {
+                        intakeSettingsPending = false;
+                        if (current(token)) render();
+                    }
+
+                    public void error(String reason, String message) {
+                        intakeSettingsPending = false;
+                        if (current(token)) {
+                            render();
+                            OnlineSessionFragment.this.error(message);
+                        }
+                    }
+                });
+    }
+
     private void react(int index, JSONObject p) {
+        JSONObject current = lesson();
+        JSONObject currentProgress = current.optJSONObject("progress");
+        if (!current.optBoolean("questionsOpen", true)) {
+            error("교수님이 질문·반응 접수를 마감했어요.");
+            return;
+        }
+        if (!"LIVE".equals(current.optString("status")) || currentProgress == null
+                || p.isNull("currentVisitId") || currentProgress.isNull("currentVisitId")
+                || !p.optString("currentVisitId").equals(currentProgress.optString("currentVisitId"))) {
+            error("진도가 바뀌었어요. 현재 대주제를 다시 확인해 주세요.");
+            return;
+        }
         repo.background(
                 "submitReaction",
                 screen.lessonId,
