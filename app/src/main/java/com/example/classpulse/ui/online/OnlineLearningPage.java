@@ -99,7 +99,7 @@ abstract class OnlineLearningPage extends OnlineFragment {
             error("대주제를 불러오고 있어요.");
             return;
         }
-        new MaterialAlertDialogBuilder(requireContext()).setTitle("대주제 선택")
+        new MaterialAlertDialogBuilder(requireContext()).setTitle("주제 선택")
                 .setItems(names.toArray(new String[0]), (dialog, index) -> selected.accept(ids.get(index)))
                 .setNegativeButton("취소", null)
                 .show();

@@ -323,7 +323,9 @@ public class NavigationInstrumentedTest {
         open("question_detail", screen(a).withQuestion(qa));
         field("답변 작성", "A 질문 답변 초안");
         open("question_detail", screen(b).withQuestion(qb));
-        backTo("question_detail");
+        onView(withId(R.id.back_button)).perform(click());
+        awaitRoute("question_detail");
+        checkContext(a, qa, "");
         recreate("question_detail");
         checkContext(a, qa, "");
         onView(withContentDescription("답변 작성")).check(matches(withText("A 질문 답변 초안")));

@@ -45,14 +45,17 @@ public final class ConfirmJoinFragment extends BaseFragment {
                 l.description,
                 "LIVE".equals(l.status) ? "수업 중" : "ENDED".equals(l.status) ? "수업 종료" : "시작 전",
                 null);
-        ui.section(content, "오늘의 대주제", null);
-        for (Models.Topic t : l.topics)
+        ui.section(content, "수업 목차", null);
+        for (Models.Topic t : l.topics) {
+            int subtopics = l.children(t.id).size();
             ui.topic(
                     content,
-                    (t.position + 1) + ". " + t.title,
-                    t.completed ? "완료" : "예정",
+                    l.topicLabel(t),
+                    subtopics > 0 ? "소주제 " + subtopics + "개" : t.completed ? "완료" : "예정",
                     false,
+                    t.parentTopicId != null,
                     null);
+        }
         ui.note(content, "참여하면 내 수업 목록에 추가돼요. 질문과 반응은 학생의 실명 없이 표시돼요.");
         if (vm.teacher()) ui.note(content, "참여 버튼을 누르면 이 기기의 학생 시연 역할로 전환합니다.");
         ui.button(

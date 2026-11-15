@@ -87,6 +87,36 @@ async function join(uid, f, inv) {
         previewToken: p.previewToken
     });
 }
+test("only the owner can delete idle classes and deletion revokes links and cached lesson references", async () => {
+    const f = await fixture();
+    const inv = await invite(f);
+    await join(student, f, inv);
+    const preview = await invoke(other, "resolveInvite", { kind: "CODE", value: inv.code });
+    const payload = { sessionId: f.sid, operationId: op() };
+    await expectReason(mutate(student, "deleteSession", { sessionId: f.sid }), "OWNER_REQUIRED");
+    await start(f);
+    await expectReason(invoke(owner, "deleteSession", payload), "LESSON_LIVE");
+    await mutate(owner, "changeProgress", { sessionId: f.sid, expectedProgressVersion: 1, action: "END" });
+    const deleted = await invoke(owner, "deleteSession", payload);
+    assert.equal(deleted.session.id, f.sid);
+    assert.ok(deleted.session.deletedAt);
+    assert.deepEqual(await invoke(owner, "deleteSession", payload), deleted);
+    for (const uid of [owner, student]) {
+        const ref = (await db.doc(`users/${uid}/lessonRefs/${f.sid}`).get()).data();
+        assert.equal(ref.state, "DELETED");
+        assert.equal(ref.sessionRevision, deleted.session.revision);
+        assert.equal(ref.joinedAt, undefined);
+        await expectReason(invoke(uid, "getSessionBootstrap", { sessionId: f.sid }), "NOT_FOUND");
+        const client = env.authenticatedContext(uid).firestore();
+        await assertFails(getDoc(doc(client, "sessions", f.sid, "topics", f.topics[0].id)));
+    }
+    await expectReason(invoke(other, "resolveInvite", { kind: "CODE", value: inv.code }), "ADMISSION_CLOSED");
+    await expectReason(mutate(other, "joinSession", { previewToken: preview.previewToken }), "NOT_FOUND");
+    const ready = await fixture();
+    await mutate(owner, "deleteSession", { sessionId: ready.sid });
+    await expectReason(invoke(owner, "getSessionBootstrap", { sessionId: ready.sid }), "NOT_FOUND");
+});
+
 async function start(f) {
     return mutate(owner, "changeProgress", {
         sessionId: f.sid,
@@ -270,6 +300,83 @@ test("progress CAS advances once; revisit preserves completion; end does not clo
         expectedProgressVersion: 5,
         action: "END"
     }), "OWNER_REQUIRED");
+});
+test("subtopics are grouped in the outline and progress follows teachable topics", async () => {
+    const f = { sid: op() };
+    const parent = { id: op(), title: "조건부확률" };
+    const first = { id: op(), title: "정의", parentTopicId: parent.id };
+    const second = { id: op(), title: "연습", parentTopicId: parent.id };
+    const standalone = { id: op(), title: "정리" };
+    const sessionInfo = { sessionId: f.sid, title: "목차가 있는 수업", description: "" };
+    await mutate(owner, "createSession", {
+        ...sessionInfo,
+        topics: [first, parent, standalone, second]
+    });
+    let state = await invoke(owner, "getSessionBootstrap", { sessionId: f.sid });
+    assert.deepEqual(state.topics.map(({ id, position, parentTopicId }) => [id, position, parentTopicId]), [
+        [parent.id, 0, null],
+        [first.id, 1, parent.id],
+        [second.id, 2, parent.id],
+        [standalone.id, 3, null]
+    ]);
+
+    await mutate(owner, "updateOutline", {
+        ...sessionInfo,
+        baseRevision: state.session.outlineVersion,
+        // A previous APK sends id and title without a parent field.
+        topics: [parent, second, standalone, { id: first.id, title: "정의 다시 보기" }]
+    });
+    await join(student, f);
+    state = await invoke(student, "getSessionBootstrap", { sessionId: f.sid });
+    assert.equal(state.topics[2].title, "정의 다시 보기");
+    assert.deepEqual(state.topics.map(topic => topic.id), [parent.id, second.id, first.id, standalone.id]);
+
+    const update = (action, expectedProgressVersion, extra = {}) => mutate(owner, "changeProgress", {
+        sessionId: f.sid,
+        action,
+        expectedProgressVersion,
+        ...extra
+    });
+    let { session } = await start(f);
+    assert.equal(session.progress.currentTopicId, second.id);
+    await mutate(student, "submitReaction", {
+        sessionId: f.sid,
+        visitId: session.progress.currentVisitId,
+        topicId: second.id,
+        type: "UNDERSTANDING"
+    });
+    ({ session } = await update("COMPLETE_NEXT", 1));
+    assert.equal(session.progress.currentTopicId, first.id);
+    await expectReason(() => update("REVISIT", 2, { topicId: parent.id }), "NOT_COMPLETED");
+    ({ session } = await update("REVISIT", 2, { topicId: second.id }));
+    assert.equal(session.progress.currentTopicId, second.id);
+    assert.equal(session.progress.resumeTopicId, first.id);
+    ({ session } = await update("COMPLETE_NEXT", 3));
+    assert.equal(session.progress.currentTopicId, first.id);
+    ({ session } = await update("COMPLETE_NEXT", 4));
+    assert.equal(session.progress.currentTopicId, standalone.id);
+    ({ session } = await update("COMPLETE_NEXT", 5));
+    assert.equal(session.progress.currentVisitId, null);
+    assert.deepEqual(session.progress.completedTopicIds, [second.id, first.id, standalone.id]);
+});
+test("invalid topic trees are rejected before a session is created", async () => {
+    const root = { id: op(), title: "대주제" };
+    const child = { id: op(), title: "소주제", parentTopicId: root.id };
+    const invalidOutlines = [
+        [root, { ...child, parentTopicId: op() }],
+        [{ ...root, parentTopicId: root.id }],
+        [root, child, { id: op(), title: "셋째 단계", parentTopicId: child.id }],
+        [root, { ...child, id: root.id }]
+    ];
+    for (const topics of invalidOutlines) {
+        const sessionId = op();
+        await expectReason(() => mutate(owner, "createSession", {
+            sessionId,
+            title: "수업",
+            topics
+        }), "INVALID_TOPICS");
+        assert.equal((await db.doc(`sessions/${sessionId}`).get()).exists, false);
+    }
 });
 test("reaction deduplication, distinct student counts, revisit and stale-visit rejection", async () => {
     const f = await fixture();

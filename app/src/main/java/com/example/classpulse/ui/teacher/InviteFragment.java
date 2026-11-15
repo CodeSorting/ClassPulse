@@ -76,7 +76,7 @@ public final class InviteFragment extends BaseFragment {
                 "참여 학생",
                 Integer.toString(lesson.members.size()),
                 "대주제",
-                Integer.toString(lesson.topics.size()));
+                Integer.toString(lesson.children(null).size()));
         if ("READY".equals(lesson.status))
             ui.button(
                     dock,
@@ -85,7 +85,7 @@ public final class InviteFragment extends BaseFragment {
                     () ->
                             new MaterialAlertDialogBuilder(requireContext())
                                     .setTitle("수업을 시작할까요?")
-                                    .setMessage("첫 대주제부터 진행합니다. 이번 버전은 강의 녹음을 시작하지 않아요.")
+                                    .setMessage("목차에서 첫 번째 진행 주제를 열어요. 소주제가 있는 대주제는 첫 소주제부터 진행해요.")
                                     .setNegativeButton("취소", null)
                                     .setPositiveButton(
                                             "수업 시작",

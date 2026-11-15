@@ -271,6 +271,12 @@ public final class Ui {
 
     public MaterialCardView card(
             LinearLayout parent, String title, String subtitle, String badge, Runnable click) {
+        return card(parent, title, subtitle, badge, click, null);
+    }
+
+    public MaterialCardView card(
+            LinearLayout parent, String title, String subtitle, String badge,
+            Runnable click, Consumer<View> menu) {
         BlockCardBinding b = BlockCardBinding.inflate(inflater, parent, false);
         b.title.setText(title);
         optional(b.subtitle, subtitle);
@@ -280,7 +286,12 @@ public final class Ui {
             b.getRoot().setClickable(true);
             b.getRoot().setFocusable(true);
             b.getRoot().setOnClickListener(v -> click.run());
-            b.chevron.setVisibility(View.VISIBLE);
+            b.chevron.setVisibility(menu == null ? View.VISIBLE : View.GONE);
+        }
+        if (menu != null) {
+            b.cardMenu.setVisibility(View.VISIBLE);
+            b.cardMenu.setContentDescription(title + " 수업 관리");
+            b.cardMenu.setOnClickListener(menu::accept);
         }
         add(parent, b.getRoot());
         return b.getRoot();
@@ -310,6 +321,11 @@ public final class Ui {
 
     public void topic(
             LinearLayout parent, String title, String status, boolean selected, Runnable click) {
+        topic(parent, title, status, selected, false, click);
+    }
+
+    public void topic(
+            LinearLayout parent, String title, String status, boolean selected, boolean child, Runnable click) {
         BlockTopicBinding b = BlockTopicBinding.inflate(inflater, parent, false);
         b.title.setText(title);
         b.status.setText(status);
@@ -324,6 +340,14 @@ public final class Ui {
                 ColorStateList.valueOf(color(live || done ? R.color.cp_accent : R.color.cp_muted)));
         b.getRoot().setCardBackgroundColor(color(selected ? R.color.cp_mint : R.color.cp_surface));
         b.getRoot().setStrokeColor(color(selected ? R.color.cp_accent : R.color.cp_line));
+        if (child) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) b.getRoot().getLayoutParams();
+            params.setMarginStart(dp(20));
+            params.bottomMargin = dp(4);
+            b.getRoot().setLayoutParams(params);
+            b.title.setTextSize(14);
+            b.title.setTypeface(null, android.graphics.Typeface.NORMAL);
+        }
         if (click != null) {
             b.getRoot().setClickable(true);
             b.getRoot().setFocusable(true);
@@ -372,11 +396,11 @@ public final class Ui {
         int checked = 0;
         for (int i = 0; i < topics.size(); i++) {
             Models.Topic t = topics.get(i);
-            labels[i] = (i + 1) + ". " + t.title + (t.completed ? " · 완료" : "");
+            labels[i] = lesson.topicLabel(t) + (t.completed ? " · 완료" : "");
             if (t.id.equals(selected)) checked = i;
         }
         new MaterialAlertDialogBuilder(context)
-                .setTitle("질문할 대주제")
+                .setTitle("질문할 주제")
                 .setSingleChoiceItems(
                         labels,
                         checked,
@@ -410,7 +434,7 @@ public final class Ui {
 
     public static String topicTitle(Models.Lesson lesson, String id) {
         Models.Topic t = lesson == null ? null : lesson.topic(id);
-        return t == null ? "대주제 미선택" : t.title;
+        return t == null ? "주제 미선택" : lesson.topicPath(t);
     }
 
     public static String time(long timestamp) {

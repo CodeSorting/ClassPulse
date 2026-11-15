@@ -18,7 +18,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -199,22 +203,25 @@ public final class LessonRepository {
 
     public void createLesson(
             String title, String description, List<String> topicTitles, Callback<String> cb) {
+        List<Models.Topic> topics = new ArrayList<>();
+        if (topicTitles != null) for (String name : topicTitles) {
+            Models.Topic topic = new Models.Topic();
+            topic.title = name;
+            topics.add(topic);
+        }
+        createLessonWithOutline(title, description, topics, cb);
+    }
+
+    public void createLessonWithOutline(
+            String title, String description, List<Models.Topic> topics, Callback<String> cb) {
         execute(
                 () -> {
                     String name = required(title, "수업 이름을 입력해 주세요.");
                     if (name.length() > 100)
                         throw new IllegalArgumentException("수업 이름은 100자까지 입력할 수 있어요.");
-                    if (topicTitles == null || topicTitles.isEmpty() || topicTitles.size() > 30)
-                        throw new IllegalArgumentException("대주제를 1개 이상, 30개 이하로 등록해 주세요.");
-                    List<String> names = new ArrayList<>();
-                    for (String t : topicTitles) {
-                        String n = required(t, "빈 대주제 이름을 확인해 주세요.");
-                        if (n.length() > 100)
-                            throw new IllegalArgumentException("대주제 이름은 100자까지 입력할 수 있어요.");
-                        names.add(n);
-                    }
                     LessonRow l = new LessonRow();
                     l.id = id();
+                    List<TopicRow> rows = topicRows(l.id, topics, Collections.emptyMap());
                     l.title = name;
                     l.description = clean(description);
                     l.teacherId = Models.TEACHER_ID;
@@ -222,15 +229,6 @@ public final class LessonRepository {
                     l.status = Models.READY;
                     l.code = newCode();
                     dao.insertLesson(l);
-                    List<TopicRow> rows = new ArrayList<>();
-                    for (int i = 0; i < names.size(); i++) {
-                        TopicRow t = new TopicRow();
-                        t.id = id();
-                        t.sessionId = l.id;
-                        t.title = names.get(i);
-                        t.position = i;
-                        rows.add(t);
-                    }
                     dao.insertTopics(rows);
                     return l.id;
                 },
@@ -251,47 +249,96 @@ public final class LessonRepository {
                     String name = required(title, "수업 이름을 입력해 주세요.");
                     if (name.length() > 100)
                         throw new IllegalArgumentException("수업 이름은 100자까지 입력할 수 있어요.");
-                    if (topics == null || topics.isEmpty() || topics.size() > 30)
-                        throw new IllegalArgumentException("대주제를 1개 이상, 30개 이하로 등록해 주세요.");
-                    List<TopicRow> existing = dao.topics(l.id),
-                            rows = new ArrayList<>(),
-                            newRows = new ArrayList<>();
-                    java.util.Set<String> retained = new java.util.HashSet<>();
-                    for (int i = 0; i < topics.size(); i++) {
-                        Models.Topic input = topics.get(i);
-                        String nameTopic = required(input.title, "빈 대주제 이름을 확인해 주세요.");
-                        if (nameTopic.length() > 100)
-                            throw new IllegalArgumentException("대주제 이름은 100자까지 입력할 수 있어요.");
-                        TopicRow t;
-                        if (clean(input.id).isEmpty()) {
-                            t = new TopicRow();
-                            t.id = id();
-                            t.sessionId = l.id;
-                            newRows.add(t);
-                        } else {
-                            t = requireTopic(l.id, input.id);
-                            if (!retained.add(t.id))
-                                throw new IllegalArgumentException("같은 대주제가 중복됐어요. 목록을 확인해 주세요.");
-                        }
-                        t.title = nameTopic;
-                        t.position = i;
-                        rows.add(t);
-                    }
-                    for (TopicRow old : existing)
+                    Map<String, TopicRow> existing = new LinkedHashMap<>();
+                    for (TopicRow topic : dao.topics(l.id)) existing.put(topic.id, topic);
+                    List<TopicRow> rows = topicRows(l.id, topics, existing);
+                    Set<String> retained = new HashSet<>();
+                    for (TopicRow topic : rows) retained.add(topic.id);
+                    for (TopicRow old : existing.values())
                         if (!retained.contains(old.id)) {
                             if (dao.topicReferenceCount(old.id) > 0)
                                 throw new IllegalStateException(
-                                        "질문이나 기록이 연결된 대주제는 삭제할 수 없어요. 이름이나 순서를 수정해 주세요.");
+                                        "질문이나 기록이 연결된 주제는 삭제할 수 없어요. 이름이나 순서를 수정해 주세요.");
                             dao.deleteTopic(old);
                         }
+                    List<TopicRow> newRows = new ArrayList<>();
+                    for (TopicRow topic : rows) {
+                        if (existing.containsKey(topic.id)) dao.updateTopic(topic);
+                        else newRows.add(topic);
+                    }
                     dao.insertTopics(newRows);
-                    for (TopicRow t : rows) if (!newRows.contains(t)) dao.updateTopic(t);
                     l.title = name;
                     l.description = clean(description);
                     dao.updateLesson(l);
                     return null;
                 },
                 cb);
+    }
+
+    private List<TopicRow> topicRows(
+            String sessionId, List<Models.Topic> topics, Map<String, TopicRow> existing) {
+        if (topics == null || topics.isEmpty() || topics.size() > 30)
+            throw new IllegalArgumentException("대주제와 소주제는 합쳐서 30개까지 등록할 수 있어요.");
+        Map<String, TopicRow> byId = new LinkedHashMap<>();
+        Map<String, List<TopicRow>> children = new LinkedHashMap<>();
+        for (Models.Topic input : topics) {
+            String topicId = clean(input.id);
+            if (topicId.isEmpty()) topicId = id();
+            if (byId.containsKey(topicId))
+                throw new IllegalArgumentException("같은 주제가 중복됐어요. 목록을 확인해 주세요.");
+            TopicRow topic = existing.get(topicId);
+            if (topic == null) {
+                if (dao.topic(topicId) != null)
+                    throw new IllegalArgumentException("이 수업에 속한 주제를 선택해 주세요.");
+                topic = new TopicRow();
+                topic.id = topicId;
+                topic.sessionId = sessionId;
+            }
+            topic.title = required(input.title, "빈 주제 이름을 확인해 주세요.");
+            if (topic.title.length() > 100)
+                throw new IllegalArgumentException("주제 이름은 100자까지 입력할 수 있어요.");
+            String parentId = clean(input.parentTopicId);
+            topic.parentTopicId = parentId.isEmpty() ? null : parentId;
+            byId.put(topic.id, topic);
+            children.computeIfAbsent(topic.parentTopicId, key -> new ArrayList<>()).add(topic);
+        }
+        for (String parentId : children.keySet()) {
+            if (parentId == null) continue;
+            TopicRow parent = byId.get(parentId);
+            if (parent == null || parent.parentTopicId != null)
+                throw new IllegalArgumentException("소주제는 대주제 바로 아래에만 추가해 주세요.");
+        }
+        List<TopicRow> rows = new ArrayList<>();
+        for (TopicRow root : children.getOrDefault(null, Collections.emptyList())) {
+            rows.add(root);
+            rows.addAll(children.getOrDefault(root.id, Collections.emptyList()));
+        }
+        for (int i = 0; i < rows.size(); i++) rows.get(i).position = i;
+        return rows;
+    }
+
+    public void deleteLesson(String sessionId, String teacherId, Callback<Void> cb) {
+        execute(
+                () -> {
+                    LessonRow lesson = requireLesson(sessionId);
+                    if (!Models.TEACHER_ID.equals(teacherId) || !teacherId.equals(lesson.teacherId))
+                        throw new IllegalStateException("담당 교수만 수업을 삭제할 수 있어요.");
+                    if (Models.LIVE.equals(lesson.status))
+                        throw new IllegalStateException("수업을 종료한 뒤 삭제해 주세요.");
+                    if (Models.isBuiltInLesson(lesson.id))
+                        throw new IllegalStateException("기본 시연 수업은 삭제할 수 없어요.");
+                    dao.deleteLesson(lesson);
+                    return null;
+                },
+                cb);
+    }
+
+    private List<TopicRow> teachingTopics(String sessionId) {
+        List<TopicRow> topics = dao.topics(sessionId);
+        Set<String> parents = new HashSet<>();
+        for (TopicRow topic : topics) if (topic.parentTopicId != null) parents.add(topic.parentTopicId);
+        topics.removeIf(topic -> parents.contains(topic.id));
+        return topics;
     }
 
     private String newCode() {
@@ -350,7 +397,7 @@ public final class LessonRepository {
                     if (Models.LIVE.equals(l.status)) return null;
                     if (!Models.READY.equals(l.status))
                         throw new IllegalStateException("종료한 수업을 다시 시작할 수 없어요.");
-                    List<TopicRow> ts = dao.topics(l.id);
+                    List<TopicRow> ts = teachingTopics(l.id);
                     if (ts.isEmpty()) throw new IllegalStateException("대주제를 먼저 등록해 주세요.");
                     l.status = Models.LIVE;
                     openVisit(l, ts.get(0), false);
@@ -378,7 +425,7 @@ public final class LessonRepository {
                         if (!resume.completed) openVisit(l, resume, false);
                         else l.currentTopicId = resume.id;
                     } else {
-                        for (TopicRow t : dao.topics(l.id))
+                        for (TopicRow t : teachingTopics(l.id))
                             if (!t.completed) {
                                 openVisit(l, t, false);
                                 break;
@@ -396,7 +443,7 @@ public final class LessonRepository {
                     LessonRow l = requireLesson(sessionId);
                     requireLive(l);
                     TopicRow target = requireTopic(l.id, topicId);
-                    if (!target.completed) throw new IllegalStateException("완료한 대주제를 선택해 주세요.");
+                    if (!target.completed) throw new IllegalStateException("완료한 주제를 선택해 주세요.");
                     if (topicId.equals(l.currentTopicId) && l.resumeTopicId != null) return null;
                     if (l.resumeTopicId == null) l.resumeTopicId = l.currentTopicId;
                     closeVisit(l);
@@ -798,7 +845,7 @@ public final class LessonRepository {
         long now = System.currentTimeMillis();
         for (int index = 0; index < 2; index++) {
             LessonRow l = new LessonRow();
-            l.id = index == 0 ? "demo-session-current" : "demo-session-review";
+            l.id = index == 0 ? Models.DEMO_CURRENT_LESSON_ID : Models.DEMO_REVIEW_LESSON_ID;
             l.title = "통계학개론 · " + (index == 0 ? "3주차" : "2주차");
             l.description = index == 0 ? "수업을 준비하고 대주제별로 소통해 보세요." : "공개 원문·질문·퀴즈를 확인하는 시연용 예시 수업";
             l.code = index == 0 ? "4821" : "3759";

@@ -118,6 +118,50 @@ public class LessonRepositoryInstrumentedTest {
     }
 
     @Test
+    public void localOutlineProgressAndDeletionPreserveExistingCourseBoundaries() {
+        Models.Topic main = topic("unit-topic", "함수", null);
+        Models.Topic child = topic("child-topic", "정의역", main.id);
+        Models.Topic next = topic("next-topic", "함수 계산", null);
+        String id = success(cb -> repo.createLessonWithOutline(
+                "목차 수업", "", Arrays.asList(child, main, next), cb));
+        Models.Lesson saved = lesson(id);
+        assertEquals(main.id, saved.topics.get(0).id);
+        assertEquals(main.id, saved.topics.get(1).parentTopicId);
+        assertEquals("1.1 정의역", saved.topicLabel(saved.topic(child.id)));
+
+        Models.Topic newChild = topic("extra-topic", "치역", main.id);
+        ok(cb -> repo.updateLesson(id, saved.title, saved.description,
+                Arrays.asList(main, child, newChild, next), cb));
+        join(id);
+        ok(cb -> repo.startLesson(id, cb));
+        assertEquals(child.id, lesson(id).currentTopicId);
+        assertTrue(this.<Void>failure(cb -> repo.deleteLesson(id, Models.TEACHER_ID, cb)).contains("종료"));
+        String question = success(cb -> repo.submitQuestion(null, id, child.id, UID, "정의역 질문", cb));
+        ok(cb -> repo.completeTopic(id, cb));
+        assertEquals(newChild.id, lesson(id).currentTopicId);
+        ok(cb -> repo.completeTopic(id, cb));
+        assertEquals(next.id, lesson(id).currentTopicId);
+        assertEquals(child.id, lesson(id).question(question).topicId);
+        ok(cb -> repo.endLesson(id, cb));
+        assertTrue(this.<Void>failure(cb -> repo.deleteLesson(id, UID, cb)).contains("담당 교수"));
+        assertTrue(lesson(id).isMember(UID));
+        String another = create();
+        ok(cb -> repo.deleteLesson(id, Models.TEACHER_ID, cb));
+        assertNull(db.lessonDao().lesson(id));
+        assertTrue(db.lessonDao().topics(id).isEmpty());
+        assertNull(db.lessonDao().question(question));
+        assertNotNull(db.lessonDao().lesson(another));
+    }
+
+    private Models.Topic topic(String id, String title, String parentTopicId) {
+        Models.Topic topic = new Models.Topic();
+        topic.id = id;
+        topic.title = title;
+        topic.parentTopicId = parentTopicId;
+        return topic;
+    }
+
+    @Test
     public void sequentialProgressAndRevisitPreserveHistoryAndQuestionContext() {
         String id = create();
         join(id);

@@ -1,40 +1,66 @@
 package com.example.classpulse.ui.online;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.EditText;
 import androidx.annotation.NonNull;
-import com.example.classpulse.online.*;
+import com.example.classpulse.domain.Models;
+import com.example.classpulse.online.OnlineDatabase;
+import com.example.classpulse.online.OnlineJson;
+import com.example.classpulse.online.OnlineRepository;
 import com.example.classpulse.ui.ScreenContext;
-import org.json.*;
-import java.util.*;
+import com.example.classpulse.ui.TopicOutlineEditor;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public final class OnlineEditorFragment extends OnlineFragment {
     private String newId, titleText = "", description = "";
-    private JSONArray outline = new JSONArray();
-    private final List<EditText> fields = new ArrayList<>();
+    private final List<Models.Topic> outline = new ArrayList<>();
     private EditText titleField, descriptionField;
     private boolean built, initialized, busy;
     private long baseRevision;
 
     @Override
     protected String title() {
-        return "수업과 대주제 준비";
+        return screen.lessonId.isEmpty() ? "수업 준비" : "수업 정보 수정";
     }
 
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
         newId = state == null ? OnlineJson.id() : state.getString("new_id", OnlineJson.id());
-        if (state != null) {
-            titleText = state.getString("title", "");
-            description = state.getString("description", "");
-            try {
-                outline = new JSONArray(state.getString("outline", "[]"));
-            } catch (Exception ignored) {
-            }
-            initialized = state.getBoolean("initialized");
-            baseRevision = state.getLong("base_revision");
+        if (state == null) return;
+        titleText = state.getString("title", "");
+        description = state.getString("description", "");
+        try {
+            JSONArray saved = new JSONArray(state.getString("outline", "[]"));
+            for (int i = 0; i < saved.length(); i++) readTopic(saved.getJSONObject(i));
+        } catch (JSONException ignored) {
+            outline.clear();
         }
+        initialized = state.getBoolean("initialized") && !outline.isEmpty();
+        baseRevision = state.getLong("base_revision");
+    }
+
+    private void readTopic(JSONObject value) {
+        Models.Topic topic = new Models.Topic();
+        topic.id = value.optString("id");
+        topic.title = value.optString("title");
+        topic.parentTopicId = value.isNull("parentTopicId") ? null : value.optString("parentTopicId");
+        topic.position = outline.size();
+        outline.add(topic);
+    }
+
+    private JSONArray writeOutline() {
+        JSONArray payloadTopics = new JSONArray();
+        for (Models.Topic topic : outline) {
+            payloadTopics.put(OnlineJson.values(
+                    "id", topic.id, "title", topic.title, "parentTopicId", topic.parentTopicId));
+        }
+        return payloadTopics;
     }
 
     @Override
@@ -45,132 +71,84 @@ public final class OnlineEditorFragment extends OnlineFragment {
     private void capture() {
         if (titleField != null) titleText = titleField.getText().toString();
         if (descriptionField != null) description = descriptionField.getText().toString();
-        for (int i = 0; i < fields.size() && i < outline.length(); i++)
-            try {
-                outline.getJSONObject(i).put("title", fields.get(i).getText().toString());
-            } catch (Exception ignored) {
-            }
     }
 
     @Override
     protected void render() {
         if (shell == null || repo == null || built) return;
         boolean edit = !screen.lessonId.isEmpty();
-        JSONObject s = lesson();
+        JSONObject session = lesson();
+        shell.demoBanner.setVisibility(View.GONE);
         if (!initialized) {
-            if (edit
-                    && (s.optString("id").isEmpty() || topics().size() != s.optInt("topicCount"))) {
-                clear();
-                ui.note(shell.content, "목차를 불러오고 있어요.");
-                return;
-            }
             if (edit) {
-                titleText = s.optString("title");
-                description = s.optString("description");
-                baseRevision = s.optLong("outlineVersion");
-                for (OnlineDatabase.Document t : topics()) outline.put(OnlineJson.object(t.json));
-            } else outline.put(OnlineJson.values("id", OnlineJson.id(), "title", ""));
+                List<OnlineDatabase.Document> topics = topics();
+                if (session.optString("id").isEmpty() || topics.size() != session.optInt("topicCount")) {
+                    clear();
+                    ui.note(shell.content, "목차를 불러오고 있어요.");
+                    return;
+                }
+                if (!owner() || !"READY".equals(session.optString("status"))) {
+                    clear();
+                    ui.note(shell.content, "수업 시작 전에 담당 교수가 목차를 편집할 수 있어요.");
+                    return;
+                }
+                titleText = session.optString("title");
+                description = session.optString("description");
+                baseRevision = session.optLong("outlineVersion");
+                for (OnlineDatabase.Document topic : topics) readTopic(OnlineJson.object(topic.json));
+            } else {
+                readTopic(OnlineJson.values("id", OnlineJson.id(), "title", ""));
+            }
             initialized = true;
         }
         clear();
-        fields.clear();
         built = true;
-        ui.heading(shell.content, "대주제를 먼저 준비해요", "제목과 순서를 정하고 수업에서 완료 버튼으로 진행해요.");
         titleField = ui.field(shell.content, "수업명", titleText, false);
-        descriptionField = ui.field(shell.content, "수업 설명", description, true);
-        for (int i = 0; i < outline.length(); i++) {
-            final int pos = i;
-            JSONObject t = outline.optJSONObject(i);
-            fields.add(ui.field(shell.content, (i + 1) + ". 대주제", t.optString("title"), false));
-            ui.pair(shell.content, "위로", () -> move(pos, -1), "아래로", () -> move(pos, 1));
-            ui.button(
-                    shell.content,
-                    "대주제 " + (i + 1) + " 삭제",
-                    false,
-                    () -> {
-                        capture();
-                        outline.remove(pos);
-                        built = false;
-                        render();
-                    });
-        }
-        ui.button(
-                shell.content,
-                "대주제 추가",
-                false,
-                () -> {
-                    capture();
-                    outline.put(OnlineJson.values("id", OnlineJson.id(), "title", ""));
-                    built = false;
-                    render();
-                });
-        ui.button(shell.dock, busy ? "서버 확인 중…" : edit ? "수업 정보 저장" : "수업 만들기", true, this::save)
-                .setEnabled(!busy);
-    }
-
-    private void move(int i, int delta) {
-        capture();
-        int j = i + delta;
-        if (j < 0 || j >= outline.length()) return;
-        try {
-            Object a = outline.get(i);
-            outline.put(i, outline.get(j));
-            outline.put(j, a);
-        } catch (Exception ignored) {
-        }
-        built = false;
-        render();
+        descriptionField = ui.field(shell.content, "수업 설명 (선택)", description, true);
+        descriptionField.setMinimumHeight(Math.round(72 * getResources().getDisplayMetrics().density));
+        titleField.setEnabled(!busy);
+        descriptionField.setEnabled(!busy);
+        new TopicOutlineEditor(shell.content, outline, !busy);
+        String saveLabel = edit ? "수업 정보 저장" : "수업 만들기";
+        ui.button(shell.dock, busy ? "저장 중…" : saveLabel, true, this::save).setEnabled(!busy);
     }
 
     private void save() {
         if (busy) return;
         capture();
-        if (titleText.trim().isEmpty() || outline.length() == 0) {
+        if (titleText.trim().isEmpty() || outline.isEmpty()) {
             error("수업명과 대주제를 입력해 주세요.");
             return;
         }
-        for (int i = 0; i < outline.length(); i++)
-            if (outline.optJSONObject(i).optString("title").trim().isEmpty()) {
-                error("빈 대주제 제목을 확인해 주세요.");
+        for (Models.Topic topic : outline) {
+            if (topic.title.trim().isEmpty()) {
+                boolean parent = topic.parentTopicId == null || topic.parentTopicId.isEmpty();
+                error(parent ? "빈 대주제 제목을 확인해 주세요." : "빈 소주제 제목을 확인해 주세요.");
                 return;
             }
+        }
         boolean edit = !screen.lessonId.isEmpty();
         String sid = edit ? screen.lessonId : newId;
-        JSONArray payloadTopics = new JSONArray();
-        for (int i = 0; i < outline.length(); i++) {
-            JSONObject t = outline.optJSONObject(i);
-            payloadTopics.put(
-                    OnlineJson.values("id", t.optString("id"), "title", t.optString("title")));
-        }
-        JSONObject payload =
-                OnlineJson.values(
-                        "sessionId",
-                        sid,
-                        "title",
-                        titleText,
-                        "description",
-                        description,
-                        "topics",
-                        payloadTopics);
-        if (edit)
+        JSONObject payload = OnlineJson.values(
+                "sessionId", sid, "title", titleText, "description", description, "topics", writeOutline());
+        if (edit) {
             try {
                 payload.put("baseRevision", baseRevision);
-            } catch (Exception ignored) {
+            } catch (JSONException impossible) {
+                throw new IllegalStateException(impossible);
             }
+        }
         busy = true;
         built = false;
         render();
         final long token = viewToken();
-        repo.command(
-                edit ? "updateOutline" : "createSession",
-                sid,
-                payload,
+        repo.command(edit ? "updateOutline" : "createSession", sid, payload,
                 new OnlineRepository.Callback() {
                     public void success(JSONObject result) {
                         busy = false;
-                        if (current(token))
-                            host().replaceCurrent(
-                                            "online_session", ScreenContext.empty().forLesson(sid));
+                        if (current(token)) {
+                            host().replaceCurrent("online_session", ScreenContext.empty().forLesson(sid));
+                        }
                     }
 
                     public void error(String reason, String message) {
@@ -191,7 +169,7 @@ public final class OnlineEditorFragment extends OnlineFragment {
         out.putString("new_id", newId);
         out.putString("title", titleText);
         out.putString("description", description);
-        out.putString("outline", outline.toString());
+        out.putString("outline", writeOutline().toString());
         out.putBoolean("initialized", initialized);
         out.putLong("base_revision", baseRevision);
     }
@@ -202,7 +180,6 @@ public final class OnlineEditorFragment extends OnlineFragment {
         built = false;
         titleField = null;
         descriptionField = null;
-        fields.clear();
         super.onDestroyView();
     }
 }

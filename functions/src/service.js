@@ -140,20 +140,42 @@ function createService(db, {
         }));
     }
 
-    function topicsInput(value) {
-        if (!Array.isArray(value) || value.length < 1 || value.length > 100) fail("INVALID_TOPICS", "대주제를 1~100개 준비해 주세요.", "invalid-argument");
-        const ids = new Set();
-        return value.map((v, i) => {
-            const topicId = id(v.id);
-            if (ids.has(topicId) || v.parentTopicId != null) fail("INVALID_TOPICS", "대주제 ID와 구조를 확인해 주세요.", "invalid-argument");
-            ids.add(topicId);
-            return {
+    function topicsInput(value, existingParents) {
+        if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+            fail("INVALID_TOPICS", "대주제와 소주제를 합쳐 1~100개로 준비해 주세요.", "invalid-argument");
+        }
+        const topics = new Map();
+        for (const entry of value) {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                fail("INVALID_TOPICS", "주제 내용을 확인해 주세요.", "invalid-argument");
+            }
+            const topicId = id(entry.id);
+            if (topics.has(topicId)) {
+                fail("INVALID_TOPICS", "같은 주제를 두 번 넣을 수 없어요.", "invalid-argument");
+            }
+            topics.set(topicId, {
                 id: topicId,
-                title: text(v.title, 120),
-                position: i,
-                parentTopicId: null
-            };
-        });
+                title: text(entry.title, 120),
+                parentTopicId: Object.hasOwn(entry, "parentTopicId")
+                    ? entry.parentTopicId ?? null
+                    : existingParents?.get(topicId) ?? null
+            });
+        }
+        const childrenByParent = new Map();
+        for (const topic of topics.values()) {
+            if (topic.parentTopicId === null) continue;
+            const parent = topics.get(topic.parentTopicId);
+            if (!parent || parent.parentTopicId !== null) {
+                fail("INVALID_TOPICS", "소주제는 이 수업의 대주제 아래에만 둘 수 있어요.", "invalid-argument");
+            }
+            if (!childrenByParent.has(parent.id)) childrenByParent.set(parent.id, []);
+            childrenByParent.get(parent.id).push(topic);
+        }
+        const ordered = [];
+        for (const topic of topics.values()) {
+            if (topic.parentTopicId === null) ordered.push(topic, ...(childrenByParent.get(topic.id) || []));
+        }
+        return ordered.map((topic, position) => ({ ...topic, position }));
     }
     async function createSession(uid, p, name) {
         const sid = id(p.sessionId),
@@ -212,9 +234,33 @@ function createService(db, {
             };
         });
     }
+    async function deleteSession(uid, p) {
+        return command(uid, "deleteSession", p, async (tx, now) => {
+            const { ref, s } = await access(tx, p.sessionId, uid, true);
+            if (s.status === "LIVE") fail("LESSON_LIVE", "진행 중인 수업은 수업을 종료한 뒤 삭제해 주세요.");
+            const members = await tx.get(ref.collection("members"));
+            const updated = bump(s, now, {
+                deletedAt: now,
+                questionsOpen: false,
+                admissionOpen: false
+            });
+            tx.set(ref, updated);
+            const userIds = new Set([uid, ...members.docs.map(member => member.id)]);
+            for (const userId of userIds) {
+                // Removing joinedAt excludes this marker from the existing ordered home list.
+                tx.set(db.doc(`users/${userId}/lessonRefs/${p.sessionId}`), {
+                    sessionId: p.sessionId,
+                    state: "DELETED",
+                    deletedAt: now,
+                    sessionRevision: updated.revision,
+                    joinedAt: FieldValue.delete()
+                }, { merge: true });
+            }
+            return { session: { id: p.sessionId, revision: updated.revision, deletedAt: now } };
+        });
+    }
     async function updateOutline(uid, p) {
-        const topics = topicsInput(p.topics),
-            title = text(p.title, 120),
+        const title = text(p.title, 120),
             description = text(p.description || "", 2000, false);
         return command(uid, "updateOutline", p, async (tx, now) => {
             const {
@@ -224,12 +270,15 @@ function createService(db, {
             if (s.status !== "READY") fail("OUTLINE_LOCKED", "수업 시작 전만 목차를 편집할 수 있어요.");
             if (s.outlineVersion !== integer(p.baseRevision)) fail("VERSION_CONFLICT", "다른 기기에서 목차가 바뀌었어요.");
             const old = await tx.get(ref.collection("topics"));
+            const existingParents = new Map(old.docs.map(doc => [doc.id, doc.data().parentTopicId]));
+            // Older clients omit parentTopicId when editing existing topics.
+            const topics = topicsInput(p.topics, existingParents);
             const summary = await tx.get(ref.collection("analytics").doc("summary"));
             const removed = old.docs.filter(d => !d.data().deletedAt && !topics.some(t => t.id === d.id));
-            if (removed.length && (summary.data()?.studentCount || 0) > 0) fail("TOPIC_IN_USE", "참여 학생이 있는 수업의 대주제는 삭제할 수 없어요.");
+            if (removed.length && (summary.data()?.studentCount || 0) > 0) fail("TOPIC_IN_USE", "참여 학생이 있는 수업의 주제는 삭제할 수 없어요.");
             for (const t of topics) {
                 const before = old.docs.find(d => d.id === t.id)?.data();
-                if (before?.deletedAt) fail("TOPIC_DELETED", "삭제한 대주제 번호는 다시 사용할 수 없어요.");
+                if (before?.deletedAt) fail("TOPIC_DELETED", "삭제한 주제 번호는 다시 사용할 수 없어요.");
             }
             const updated = bump(s, now, {
                 title,
@@ -447,11 +496,13 @@ function createService(db, {
             } = await access(tx, p.sessionId, uid, true);
             if (s.progressVersion !== integer(p.expectedProgressVersion)) fail("VERSION_CONFLICT", "다른 기기에서 진도가 바뀌었어요. 최신 진도를 확인해 주세요.");
             if (action === "START" ? s.status !== "READY" : s.status !== "LIVE") fail("INVALID_STATE", "현재 수업 상태에서는 할 수 없는 동작이에요.");
-            const topicSnap = await tx.get(ref.collection("topics").orderBy("position")),
-                topics = topicSnap.docs.filter(x => !x.data().deletedAt).map(x => ({
-                    id: x.id,
-                    ...x.data()
-                }));
+            const topicSnap = await tx.get(ref.collection("topics").orderBy("position"));
+            const activeTopics = topicSnap.docs.filter(x => !x.data().deletedAt).map(x => ({
+                ...x.data(),
+                id: x.id
+            }));
+            const groupIds = new Set(activeTopics.map(topic => topic.parentTopicId).filter(Boolean));
+            const topics = activeTopics.filter(topic => !groupIds.has(topic.id));
             const progress = {
                     ...s.progress,
                     completedTopicIds: [...s.progress.completedTopicIds]
@@ -477,9 +528,9 @@ function createService(db, {
             }
             if (action === "REVISIT") {
                 const target = id(p.topicId);
-                if (!progress.completedTopicIds.includes(target)) fail("NOT_COMPLETED", "완료한 대주제를 골라 주세요.");
+                if (!progress.completedTopicIds.includes(target)) fail("NOT_COMPLETED", "완료한 주제를 골라 주세요.");
                 next = topics.find(t => t.id === target);
-                if (!next) fail("INVALID_TOPIC", "대주제를 찾지 못했어요.");
+                if (!next) fail("INVALID_TOPIC", "진행할 수 있는 주제를 찾지 못했어요.");
                 if (!progress.resumeTopicId) progress.resumeTopicId = progress.currentTopicId;
                 revisit = true;
             }
@@ -821,6 +872,7 @@ function createService(db, {
     }
     const handlers = {
         createSession,
+        deleteSession,
         updateOutline,
         getSessionBootstrap: bootstrap,
         issueInvite,

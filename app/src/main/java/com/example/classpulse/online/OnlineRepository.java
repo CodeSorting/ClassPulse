@@ -53,6 +53,10 @@ public final class OnlineRepository implements AutoCloseable {
         return store.sessions();
     }
 
+    public LiveData<Session> observeSession(String sid) {
+        return store.observeSession(sid);
+    }
+
     public LiveData<List<Document>> documents(String sid) {
         return store.documents(sid);
     }
@@ -120,7 +124,8 @@ public final class OnlineRepository implements AutoCloseable {
         String id = data.optString("id");
         if (id.isEmpty()) return;
         Session old = store.session(id);
-        if (old != null && old.revision > data.optLong("revision")) return;
+        if (old != null && (old.revision > data.optLong("revision")
+                || (!OnlineJson.object(old.json).isNull("deletedAt") && data.isNull("deletedAt")))) return;
         Session row = new Session();
         row.id = id;
         row.json = data.toString();
@@ -251,13 +256,25 @@ public final class OnlineRepository implements AutoCloseable {
         JSONObject s = value.optJSONObject("session");
         if (s == null) return;
         db.runInTransaction(() -> {
+            String sid = s.optString("id");
+            Session previous = store.session(sid);
+            JSONObject latest = previous == null ? new JSONObject() : OnlineJson.object(previous.json);
+            if (!latest.isNull("deletedAt") || latest.optLong("outlineVersion") > s.optLong("outlineVersion")) {
+                return;
+            }
             session(s);
             JSONArray topics = value.optJSONArray("topics");
-            if (topics != null)
-                for (int i = 0; i < topics.length(); i++) {
-                    JSONObject t = topics.optJSONObject(i);
-                    if (t != null) document(s.optString("id"), "TOPIC", t.optString("id"), t);
-                }
+            if (topics == null) return;
+            List<String> currentIds = new ArrayList<>(topics.length());
+            for (int i = 0; i < topics.length(); i++) {
+                JSONObject topic = topics.optJSONObject(i);
+                if (topic == null) continue;
+                String topicId = topic.optString("id");
+                if (topicId.isEmpty()) continue;
+                currentIds.add(topicId);
+                document(sid, "TOPIC", topicId, topic);
+            }
+            store.deleteMissingTopics(sid, currentIds);
         });
     }
 
@@ -272,6 +289,18 @@ public final class OnlineRepository implements AutoCloseable {
                     if (!active()) return;
                     if (e != null) {
                         OnlineTransport.Failure f = error(e);
+                        if ("getSessionBootstrap".equals(command) && "NOT_FOUND".equals(f.reason)) {
+                            String sid = payload.optString("sessionId");
+                            local(() -> {
+                                if (!active()) return;
+                                Session cached = store.session(sid);
+                                if (cached == null || !OnlineJson.object(cached.json).isNull("deletedAt")) return;
+                                // The server never reuses session IDs. A cached class it no longer
+                                // recognizes must not reappear from a delayed bootstrap response.
+                                session(OnlineJson.values("id", sid, "revision", cached.revision,
+                                        "deletedAt", System.currentTimeMillis()));
+                            });
+                        }
                         failure(callback, f.reason, f.getMessage());
                         return;
                     }
@@ -283,10 +312,20 @@ public final class OnlineRepository implements AutoCloseable {
                 });
     }
 
+    private void applyDeletedLessonRef(String sid, JSONObject ref) {
+        if (!"DELETED".equals(ref.optString("state")) || ref.isNull("deletedAt")) return;
+        local(() -> {
+            if (active()) session(OnlineJson.values(
+                    "id", sid, "revision", ref.optLong("sessionRevision"), "deletedAt", ref.optLong("deletedAt")));
+        });
+    }
+
     public OnlineTransport.Subscription watchHome() {
         OnlineTransport.Sink errors =
                 new OnlineTransport.Sink() {
-                    public void document(String k, String id, JSONObject v) {}
+                    public void document(String kind, String id, JSONObject value) {
+                        if ("LESSON_REF".equals(kind)) applyDeletedLessonRef(id, value);
+                    }
 
                     public void error(String r, String m) {
                         failure(null, r, m);
@@ -351,6 +390,10 @@ public final class OnlineRepository implements AutoCloseable {
                                         new OnlineTransport.Sink() {
                                             public void document(
                                                     String kind, String id, JSONObject data) {
+                                                if ("LESSON_REF".equals(kind)) {
+                                                    if (!stopped.get()) applyDeletedLessonRef(id, data);
+                                                    return;
+                                                }
                                                 local(() -> {
                                                     if (!active() || stopped.get()) return;
                                                     db.runInTransaction(() -> {

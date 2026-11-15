@@ -168,7 +168,7 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
             Sink sink,
             List<ListenerRegistration> registrations) {
         registrations.add(
-                ref.addSnapshotListener((snapshot, error) -> {
+                ref.addSnapshotListener(MetadataChanges.INCLUDE, (snapshot, error) -> {
                     if (error != null) {
                         Failure f = failure(error);
                         sink.error(f.reason, f.getMessage());
@@ -184,9 +184,9 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
     @Override
     public Subscription watchHome(
             String uid, java.util.function.Consumer<String> onId, Sink errors) {
+        CollectionReference refs = db.collection("users/" + uid + "/lessonRefs");
         ListenerRegistration listener =
-                db.collection("users/" + uid + "/lessonRefs")
-                        .orderBy("joinedAt", Query.Direction.DESCENDING)
+                refs.orderBy("joinedAt", Query.Direction.DESCENDING)
                         .limit(20)
                         .addSnapshotListener((snapshot, error) -> {
                             if (error != null) {
@@ -199,7 +199,20 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                                     if ("ACTIVE".equals(d.getString("state")))
                                         onId.accept(d.getId());
                         });
-        return listener::remove;
+        ListenerRegistration deletions = refs.whereEqualTo("state", "DELETED")
+                .addSnapshotListener(MetadataChanges.INCLUDE, (snapshot, error) -> {
+                    if (error != null) {
+                        Failure f = failure(error);
+                        errors.error(f.reason, f.getMessage());
+                    } else if (snapshot != null && !snapshot.getMetadata().isFromCache()) {
+                        for (DocumentSnapshot doc : snapshot.getDocuments())
+                            errors.document("LESSON_REF", doc.getId(), OnlineJson.json(doc.getData()));
+                    }
+                });
+        return () -> {
+            listener.remove();
+            deletions.remove();
+        };
     }
 
     @Override
@@ -207,6 +220,7 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
         List<ListenerRegistration> all = new ArrayList<>();
         String base = "sessions/" + sid;
         watch(db.document(base), "SESSION", sink, all);
+        watch(db.document("users/" + uid + "/lessonRefs/" + sid), "LESSON_REF", sink, all);
         Query questions = db.collection(base + "/questions");
         if (!owner) questions = questions.whereEqualTo("authorUid", uid);
         watch(

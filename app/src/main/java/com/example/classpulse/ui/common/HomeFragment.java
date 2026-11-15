@@ -6,11 +6,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.PopupMenu;
 import com.example.classpulse.R;
+import com.example.classpulse.data.LessonRepository;
 import com.example.classpulse.domain.Models;
 import com.example.classpulse.ui.BaseFragment;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class HomeFragment extends BaseFragment {
+    private boolean deleting;
+
     @Nullable
     @Override
     public View onCreateView(
@@ -70,15 +75,50 @@ public final class HomeFragment extends BaseFragment {
                             ? "수업 중"
                             : "ENDED".equals(lesson.status) ? "수업 종료" : "시작 전";
             String subtitle = lesson.description == null ? "" : lesson.description;
-            if ("LIVE".equals(lesson.status) && lesson.currentTopic() != null)
-                subtitle += "\n현재 대주제 · " + lesson.currentTopic().title;
-            ui.card(content, lesson.title, subtitle, status, () -> open(lesson));
+            if (Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
+                    && lesson.currentTopic() != null)
+                subtitle += "\n현재 주제 · " + lesson.topicPath(lesson.currentTopic());
+            boolean canDelete = vm.teacher() && vm.userId().equals(lesson.teacherId)
+                    && !Models.LIVE.equals(lesson.status) && !Models.isBuiltInLesson(lesson.id);
+            ui.card(content, lesson.title, subtitle, status, () -> open(lesson),
+                    canDelete ? anchor -> lessonMenu(lesson, anchor) : null);
         }
         if (count == 0)
             ui.card(content, "아직 참여한 수업이 없어요", "교수님이 공유한 초대 링크나 4자리 코드를 입력해 주세요.", "시작하기", null);
         ui.note(
                 content,
                 "시연 수업 참여 코드: 4821\n두 역할은 이 기기 안에서 같은 수업 데이터를 사용해요. 다른 기기와의 공유는 실제 서비스 연결 후 사용할 수 있어요.");
+    }
+
+    private void lessonMenu(Models.Lesson lesson, View anchor) {
+        if (deleting) return;
+        PopupMenu menu = new PopupMenu(requireContext(), anchor);
+        menu.getMenu().add("수업 삭제").setOnMenuItemClickListener(item -> {
+            new MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("수업을 삭제할까요?")
+                    .setMessage("‘" + lesson.title + "’의 수업과 이 기기에 저장된 관련 기록이 함께 삭제돼요.")
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("삭제", (dialog, button) -> deleteLesson(lesson.id))
+                    .show();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void deleteLesson(String id) {
+        if (deleting || !isScreenActive() || !vm.teacher()) return;
+        deleting = true;
+        long generation = viewGeneration();
+        vm.repo.deleteLesson(id, vm.userId(), new LessonRepository.Callback<Void>() {
+            @Override
+            public void onSuccess(Void ignored) { deleting = false; }
+
+            @Override
+            public void onError(String message) {
+                deleting = false;
+                if (isCurrentView(generation)) showError(message);
+            }
+        });
     }
 
     private void open(Models.Lesson l) {

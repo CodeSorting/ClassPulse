@@ -37,6 +37,9 @@ public interface LessonDao {
     @Update
     void updateLesson(LessonRow row);
 
+    @Delete
+    void deleteLesson(LessonRow row);
+
     @Query("SELECT * FROM topics WHERE sessionId=:id ORDER BY position ASC")
     List<TopicRow> topics(String id);
 

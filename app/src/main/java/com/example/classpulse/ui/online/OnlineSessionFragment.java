@@ -3,6 +3,10 @@ package com.example.classpulse.ui.online;
 import android.view.View;
 import com.example.classpulse.R;
 import com.example.classpulse.online.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.json.*;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -31,6 +35,15 @@ public final class OnlineSessionFragment extends OnlineFragment {
         JSONObject p = s.optJSONObject("progress");
         if (p == null) p = new JSONObject();
         final JSONObject progress = p;
+        String currentTopic = p.isNull("currentTopicId") ? "" : p.optString("currentTopicId");
+        boolean childStep = !item("TOPIC", currentTopic).isNull("parentTopicId");
+        List<OnlineDatabase.Document> outline = topics();
+        Map<String, List<OnlineDatabase.Document>> children = new LinkedHashMap<>();
+        for (OnlineDatabase.Document topic : outline) {
+            JSONObject entry = OnlineJson.object(topic.json);
+            if (!entry.isNull("parentTopicId"))
+                children.computeIfAbsent(entry.optString("parentTopicId"), key -> new ArrayList<>()).add(topic);
+        }
         ui.heading(
                 shell.content,
                 s.optString("title"),
@@ -38,8 +51,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                         ? "시작을 기다리고 있어요"
                         : "ENDED".equals(s.optString("status"))
                                 ? "수업 종료 · 질문과 답변을 이어가요"
-                                : "지금: " + topicTitle(p.optString("currentTopicId")));
+                                : currentTopic.isEmpty() ? "모든 주제를 마쳤어요" : "지금: " + topicTitle(currentTopic));
         showNotice();
+        renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
         boolean ended = "ENDED".equals(s.optString("status"));
         if (teacher || ended) {
             ui.button(shell.content, teacher ? "녹음·수업 자료" : "수업 원문·복습 자료",
@@ -49,7 +63,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
         }
         if (teacher) {
             if ("READY".equals(s.optString("status"))) {
-                ui.button(shell.content, "대주제 편집", false, () -> open("online_edit"));
+                ui.button(shell.content, "목차 편집", false, () -> open("online_edit"));
                 ui.button(shell.dock, "수업 시작", true, () -> progress("START", null))
                         .setEnabled(!busy);
             }
@@ -62,7 +76,8 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 if (!p.isNull("currentVisitId") && !p.optString("currentVisitId").isEmpty()) {
                     String nextLabel = !p.isNull("resumeTopicId") && !p.optString("resumeTopicId").isEmpty()
                             ? "재설명 마치고 원래 주제로"
-                            : hasNextTopic(p) ? "완료하고 다음 주제" : "마지막 대주제 완료";
+                            : hasNextTopic(p, outline, children) ? "완료하고 다음 주제"
+                            : childStep ? "마지막 소주제 완료" : "마지막 대주제 완료";
                     ui.button(
                                     shell.dock,
                                     busy ? "진도 확인 중…" : nextLabel,
@@ -70,7 +85,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                     () -> progress("COMPLETE_NEXT", null))
                             .setEnabled(!busy);
                 } else {
-                    ui.note(shell.content, "모든 대주제를 마쳤어요. 수업 종료 또는 완료 주제 재설명을 선택해 주세요.");
+                    ui.note(shell.content, "모든 주제를 마쳤어요. 수업을 종료하거나 완료한 주제를 다시 설명할 수 있어요.");
                 }
                 if (!p.isNull("resumeTopicId"))
                     ui.button(shell.content, "원래 진행 주제로 복귀", false, () -> progress("RESUME", null))
@@ -117,28 +132,27 @@ public final class OnlineSessionFragment extends OnlineFragment {
         } else {
             ui.button(
                     shell.content,
-                    "이 대주제에 질문하기",
+                    childStep ? "이 소주제에 질문하기" : currentTopic.isEmpty() ? "질문하기" : "이 대주제에 질문하기",
                     true,
                     () ->
                             open(
                                     "online_question_edit",
                                     screen.withQuestion(OnlineJson.id())
-                                            .withTopic(progress.optString("currentTopicId"))));
+                                            .withTopic(currentTopic)));
             ui.button(
                     shell.content,
                     "질문할 순간 표시",
                     false,
                     () -> {
-                        String t = progress.optString("currentTopicId");
-                        if (t.isEmpty()) {
-                            error("수업 시작 후 현재 대주제를 표시할 수 있어요.");
+                        if (currentTopic.isEmpty()) {
+                            error("수업이 진행 중일 때 현재 주제를 표시할 수 있어요.");
                             return;
                         }
                         ui.prompt(
                                 "개인 키워드",
                                 "",
                                 false,
-                                v -> repo.saveMark(screen.lessonId, t, v, callback(x -> {})));
+                                v -> repo.saveMark(screen.lessonId, currentTopic, v, callback(x -> {})));
                     });
             if ("LIVE".equals(s.optString("status")) && !p.isNull("currentVisitId")
                     && !p.optString("currentVisitId").isEmpty()) {
@@ -159,19 +173,6 @@ public final class OnlineSessionFragment extends OnlineFragment {
                     pair.findViewById(R.id.right).setEnabled(accepting);
                 }
             }
-        }
-        ui.section(shell.content, "수업 대주제", null);
-        for (OnlineDatabase.Document d : topics()) {
-            boolean complete = OnlineJson.contains(p.optJSONArray("completedTopicIds"), d.id),
-                    selected = d.id.equals(p.optString("currentTopicId"));
-            ui.topic(
-                    shell.content,
-                    OnlineJson.object(d.json).optString("title"),
-                    selected ? "진행 중" : complete ? "완료" : "예정",
-                    selected,
-                    teacher && complete && "LIVE".equals(s.optString("status"))
-                            ? () -> progress("REVISIT", d.id)
-                            : null);
         }
         ui.section(shell.content, teacher ? "접수된 질문" : "내 질문", null);
         for (OnlineDatabase.Document d : kind("QUESTION")) {
@@ -254,10 +255,52 @@ public final class OnlineSessionFragment extends OnlineFragment {
         return LABELS[i];
     }
 
-    private boolean hasNextTopic(JSONObject progress) {
+    private void renderOutline(List<OnlineDatabase.Document> outline,
+                               Map<String, List<OnlineDatabase.Document>> children,
+                               JSONObject progress, boolean canRevisit) {
+        if (outline.isEmpty()) return;
+        ui.section(shell.content, "수업 목차", null);
         String current = progress.optString("currentTopicId");
-        for (OnlineDatabase.Document topic : topics())
-            if (!topic.id.equals(current)
+        JSONArray completed = progress.optJSONArray("completedTopicIds");
+        int groupNumber = 0;
+        for (OnlineDatabase.Document group : outline) {
+            JSONObject entry = OnlineJson.object(group.json);
+            if (!entry.isNull("parentTopicId")) continue;
+            groupNumber++;
+            List<OnlineDatabase.Document> groupChildren = children.get(group.id);
+            if (groupChildren == null) {
+                renderTopic(group, groupNumber + ".", false, current, completed, canRevisit);
+                continue;
+            }
+            int done = 0;
+            boolean active = false;
+            for (OnlineDatabase.Document child : groupChildren) {
+                if (OnlineJson.contains(completed, child.id)) done++;
+                if (current.equals(child.id)) active = true;
+            }
+            String groupStatus = done == groupChildren.size() ? "완료" : done + "/" + groupChildren.size() + " 완료";
+            ui.topic(shell.content, groupNumber + ". " + entry.optString("title"),
+                    active ? "진행 중 · " + groupStatus : groupStatus, active, null);
+            for (int i = 0; i < groupChildren.size(); i++)
+                renderTopic(groupChildren.get(i), groupNumber + "." + (i + 1),
+                        true, current, completed, canRevisit);
+        }
+    }
+
+    private void renderTopic(OnlineDatabase.Document topic, String number, boolean child,
+                             String current, JSONArray completed, boolean canRevisit) {
+        boolean done = OnlineJson.contains(completed, topic.id);
+        boolean active = current.equals(topic.id);
+        ui.topic(shell.content, number + " " + OnlineJson.object(topic.json).optString("title"),
+                active ? "진행 중" : done ? "완료" : "예정", active, child,
+                canRevisit && done && !active ? () -> progress("REVISIT", topic.id) : null);
+    }
+
+    private boolean hasNextTopic(JSONObject progress, List<OnlineDatabase.Document> outline,
+                                 Map<String, List<OnlineDatabase.Document>> children) {
+        String current = progress.optString("currentTopicId");
+        for (OnlineDatabase.Document topic : outline)
+            if (!children.containsKey(topic.id) && !topic.id.equals(current)
                     && !OnlineJson.contains(progress.optJSONArray("completedTopicIds"), topic.id)) return true;
         return false;
     }

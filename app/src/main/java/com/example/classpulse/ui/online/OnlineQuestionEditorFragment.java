@@ -87,7 +87,7 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
         if (shell == null || repo == null || built) return;
         if (!draftsLoaded || lesson().optString("id").isEmpty() || topics().isEmpty()) {
             clear();
-            ui.note(shell.content, "질문할 대주제를 불러오고 있어요.");
+            ui.note(shell.content, "질문할 주제를 불러오고 있어요.");
             showNotice();
             return;
         }
@@ -110,15 +110,15 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
         topicLabel = ui.text(shell.content, topicTitle(topic));
         ui.button(
                         shell.content,
-                        "질문할 대주제 변경",
+                        "질문할 주제 변경",
                         false,
                         () -> {
                             List<OnlineDatabase.Document> all = topics();
                             String[] names = new String[all.size()];
                             for (int i = 0; i < all.size(); i++)
-                                names[i] = OnlineJson.object(all.get(i).json).optString("title");
+                                names[i] = topicTitle(all.get(i).id);
                             new MaterialAlertDialogBuilder(requireContext())
-                                    .setTitle("질문할 대주제")
+                                    .setTitle("질문할 주제")
                                     .setItems(
                                             names,
                                             (dialog, which) -> {

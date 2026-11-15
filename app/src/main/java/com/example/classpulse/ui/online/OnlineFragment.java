@@ -26,7 +26,7 @@ public abstract class OnlineFragment extends Fragment {
     protected String notice = "";
     protected boolean draftsLoaded;
     private OnlineTransport.Subscription subscription;
-    private boolean observing;
+    private boolean observing, deletionHandled;
     private long generation;
 
     protected MainActivity host() {
@@ -58,6 +58,7 @@ public abstract class OnlineFragment extends Fragment {
         screen = ScreenContext.from(getArguments());
         generation++;
         observing = false;
+        deletionHandled = false;
         draftsLoaded = false;
         shell.screenTitle.setText(title());
         shell.demoBanner.setText("내 계정의 온라인 수업");
@@ -113,6 +114,7 @@ public abstract class OnlineFragment extends Fragment {
                                 changed();
                             });
             if (!screen.lessonId.isEmpty()) {
+                repo.observeSession(screen.lessonId).observe(getViewLifecycleOwner(), this::closeDeletedLesson);
                 repo.documents(screen.lessonId)
                         .observe(
                                 getViewLifecycleOwner(),
@@ -157,6 +159,18 @@ public abstract class OnlineFragment extends Fragment {
         shell = null;
         ui = null;
         super.onDestroyView();
+    }
+
+    private void closeDeletedLesson(OnlineDatabase.Session session) {
+        if (shell == null || deletionHandled || session == null
+                || OnlineJson.object(session.json).isNull("deletedAt")) return;
+        long token = viewToken();
+        shell.getRoot().post(() -> {
+            if (!current(token) || deletionHandled || getParentFragmentManager().isStateSaved()) return;
+            deletionHandled = true;
+            android.widget.Toast.makeText(requireContext(), "삭제된 수업이에요.", android.widget.Toast.LENGTH_SHORT).show();
+            host().navigateRoot("online_home");
+        });
     }
 
     protected void clear() {
@@ -225,7 +239,11 @@ public abstract class OnlineFragment extends Fragment {
     }
 
     protected String topicTitle(String id) {
-        return item("TOPIC", id).optString("title", "대주제 확인 중");
+        JSONObject topic = item("TOPIC", id);
+        String title = topic.optString("title", "주제 확인 중");
+        if (topic.isNull("parentTopicId")) return title;
+        String parent = item("TOPIC", topic.optString("parentTopicId")).optString("title");
+        return parent.isEmpty() ? title : parent + " › " + title;
     }
 
     protected OnlineDatabase.Draft draft(String kind, String id) {

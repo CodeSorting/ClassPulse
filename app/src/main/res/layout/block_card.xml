@@ -61,6 +61,14 @@
                 android:lineSpacingExtra="4dp"
             />
         </LinearLayout>
+        <ImageButton
+            android:id="@+id/cardMenu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_cp_icon_button"
+            android:contentDescription="수업 관리"
+            android:src="@drawable/ic_cp_more"
+            android:visibility="gone" />
         <!-- 눌러서 들어갈 수 있는 카드에만 보이는 화살표 -->
         <ImageView
             android:id="@+id/chevron"

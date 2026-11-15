@@ -110,8 +110,14 @@ public abstract class OnlineDatabase extends RoomDatabase {
         @Query("SELECT * FROM session_cache WHERE id=:id")
         Session session(String id);
 
+        @Query("SELECT * FROM session_cache WHERE id=:id")
+        LiveData<Session> observeSession(String id);
+
         @Upsert
         void session(Session row);
+
+        @Query("DELETE FROM document_cache WHERE sessionId=:sid AND kind='TOPIC' AND id NOT IN (:ids)")
+        void deleteMissingTopics(String sid, List<String> ids);
 
         @Query("SELECT * FROM document_cache WHERE sessionId=:sid ORDER BY updatedAt DESC, id")
         LiveData<List<Document>> documents(String sid);

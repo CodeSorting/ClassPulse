@@ -78,13 +78,14 @@ public final class LiveLessonFragment extends BaseFragment {
                     () -> navigate(teacher ? "invite" : "home"));
             return;
         }
-        Models.Topic current = lesson.currentTopic();
+        Models.Topic current = lesson.currentVisitId == null ? null : lesson.currentTopic();
         ui.heading(
                 content,
-                current == null ? "모든 대주제를 마쳤어요" : (current.position + 1) + ". " + current.title,
+                current == null ? "모든 주제를 마쳤어요" : lesson.topicLabel(current),
                 lesson.resumeTopicId == null || lesson.resumeTopicId.isEmpty()
-                        ? "현재 진행 중인 대주제"
-                        : "완료한 대주제 재설명 중");
+                        ? current != null && current.parentTopicId != null
+                                ? lesson.topicPath(current) : "현재 수업 진도"
+                        : "완료한 주제 재설명 중");
         if (teacher) ui.note(content, "녹음·음성 변환은 아직 연동되지 않았어요. 현재는 수업 진도와 반응·질문을 이 기기에 저장합니다.");
         showTopics(lesson, teacher);
         if (teacher) renderTeacher(lesson, current);
@@ -92,16 +93,22 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void showTopics(Models.Lesson lesson, boolean teacher) {
+        ui.section(content, "수업 목차", null);
         for (Models.Topic topic : lesson.topics) {
-            String status =
-                    topic.id.equals(lesson.currentTopicId) && "LIVE".equals(lesson.status)
-                            ? "진행 중"
-                            : topic.completed ? "완료" : "예정";
+            List<Models.Topic> children = lesson.children(topic.id);
+            boolean active = Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
+                    && topic.id.equals(lesson.currentTopicId);
+            int completed = 0;
+            for (Models.Topic child : children) if (child.completed) completed++;
+            String status = children.isEmpty()
+                    ? active ? "진행 중" : topic.completed ? "완료" : "예정"
+                    : completed == children.size() ? "완료" : "소주제 " + completed + "/" + children.size();
             ui.topic(
                     content,
-                    (topic.position + 1) + ". " + topic.title,
+                    lesson.topicLabel(topic),
                     status,
-                    topic.id.equals(lesson.currentTopicId),
+                    active,
+                    topic.parentTopicId != null,
                     teacher ? null : () -> newQuestion(topic.id));
         }
     }
@@ -134,7 +141,8 @@ public final class LiveLessonFragment extends BaseFragment {
                 lesson.resumeTopicId != null && !lesson.resumeTopicId.isEmpty()
                         ? "원래 진행 주제로 돌아가기"
                         : current == null || current.completed ? "모든 주제 완료 · 수업 마치기"
-                        : hasNextTopic(lesson, current) ? "완료하고 다음 주제" : "마지막 대주제 완료";
+                        : hasNextTopic(lesson, current) ? "완료하고 다음 주제"
+                        : current.parentTopicId == null ? "마지막 대주제 완료" : "마지막 소주제 완료";
         MaterialButton next =
                 ui.button(
                         dock,
@@ -179,7 +187,7 @@ public final class LiveLessonFragment extends BaseFragment {
                 },
                 "질문 작성",
                 () -> newQuestion(current == null ? null : current.id));
-        ui.note(content, "완료된 대주제에도 질문할 수 있어요. 아래 반응은 지금 진행 중인 대주제에 연결됩니다.");
+        ui.note(content, "완료된 주제에도 질문할 수 있어요. 반응은 현재 진행 중인 주제에 연결돼요.");
         boolean accepting = lesson.questionsOpen && current != null && lesson.currentVisitId != null;
         ui.text(dock, accepting ? "익명으로 지금의 이해 상태를 알려요"
                 : !lesson.questionsOpen ? "교수님이 질문·반응 접수를 마감했어요."
@@ -210,7 +218,7 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private boolean hasNextTopic(Models.Lesson lesson, Models.Topic current) {
-        for (Models.Topic topic : lesson.topics)
+        for (Models.Topic topic : lesson.teachingTopics())
             if (!topic.id.equals(current.id) && !topic.completed) return true;
         return false;
     }
@@ -232,16 +240,16 @@ public final class LiveLessonFragment extends BaseFragment {
 
     private void chooseRevisit(Models.Lesson lesson) {
         List<Models.Topic> done = new ArrayList<>();
-        for (Models.Topic t : lesson.topics)
+        for (Models.Topic t : lesson.teachingTopics())
             if (t.completed && !t.id.equals(lesson.currentTopicId)) done.add(t);
         if (done.isEmpty()) {
             showError("아직 다시 설명할 완료 주제가 없어요.");
             return;
         }
         String[] names = new String[done.size()];
-        for (int i = 0; i < done.size(); i++) names[i] = done.get(i).title;
+        for (int i = 0; i < done.size(); i++) names[i] = lesson.topicPath(done.get(i));
         new MaterialAlertDialogBuilder(requireContext())
-                .setTitle("완료한 대주제 재설명")
+                .setTitle("완료한 주제 재설명")
                 .setItems(
                         names,
                         (d, which) ->

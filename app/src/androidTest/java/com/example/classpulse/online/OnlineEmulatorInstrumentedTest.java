@@ -210,6 +210,93 @@ public class OnlineEmulatorInstrumentedTest {
         return s == null ? new JSONObject() : OnlineJson.object(s.json);
     }
 
+    @Test
+    public void teacherCanRemoveClassFromBothCachedListsAfterConfirmation() throws Exception {
+        Client teacher = client(), student = client(), away = client();
+        String sid = create(teacher).optString("sid");
+        join(teacher, student, sid);
+        join(teacher, away, sid);
+        watchers.add(student.repo.watchHome());
+        OnlineTransport.Subscription firstVisit = away.repo.watchLesson(sid);
+        await(() -> cached(student, sid).has("id") && cached(away, sid).has("id"));
+        firstVisit.close();
+        legacyScope = new LocalDatabaseScope(context);
+        context.getSharedPreferences("local_demo", 0).edit().putString("role", "NONE").commit();
+        main(() -> {
+            authScope = new EmulatorAuthScope(teacher.auth);
+            OnlineServices.close();
+            OnlineServices.testFactory = (c, uid) -> teacher.repo;
+        });
+        scenario = ActivityScenario.launch(MainActivity.class);
+        await(() -> cached(teacher, sid).has("id"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withContentDescription("온라인 통계학 수업 수업 관리")).perform(scrollTo(), click());
+        onView(withText("수업 삭제")).perform(click());
+        onView(withText("취소")).perform(click());
+        assertTrue(teacher.db.store().session(sid).accessible);
+        onView(withContentDescription("온라인 통계학 수업 수업 관리")).perform(scrollTo(), click());
+        onView(withText("수업 삭제")).perform(click());
+        onView(withText("삭제")).perform(click());
+        await(() -> !teacher.db.store().session(sid).accessible
+                && !student.db.store().session(sid).accessible);
+        assertTrue(away.db.store().session(sid).accessible);
+        // This member opens a previously cached lesson without a home subscription.
+        watchers.add(away.repo.watchLesson(sid));
+        await(() -> !cached(away, sid).isNull("deletedAt") && !away.db.store().session(sid).accessible);
+        onView(withText("온라인 통계학 수업")).check(
+                androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+    }
+
+    @Test
+    public void groupedOutlineSurvivesRotationAndRemovedChildLeavesTheCache() throws Exception {
+        Client teacher = client();
+        legacyScope = new LocalDatabaseScope(context);
+        context.getSharedPreferences("local_demo", 0).edit().putString("role", "NONE").commit();
+        main(() -> {
+            authScope = new EmulatorAuthScope(teacher.auth);
+            OnlineServices.close();
+            OnlineServices.testFactory = (c, uid) -> teacher.repo;
+        });
+        scenario = ActivityScenario.launch(MainActivity.class);
+        onView(withText("새 수업 만들기")).perform(click());
+        onView(withContentDescription("수업명")).perform(scrollTo(), replaceText("소주제 시연"), closeSoftKeyboard());
+        onView(withContentDescription("1. 대주제")).perform(scrollTo(), replaceText("표본공간"), closeSoftKeyboard());
+        onView(withContentDescription("1. 대주제에 소주제 추가")).perform(scrollTo(), click(), closeSoftKeyboard());
+        onView(withContentDescription("1.1 소주제")).perform(scrollTo(), replaceText("사건의 정의"), closeSoftKeyboard());
+        onView(withContentDescription("1. 대주제에 소주제 추가")).perform(scrollTo(), click(), closeSoftKeyboard());
+        onView(withContentDescription("1.2 소주제")).perform(scrollTo(), replaceText("사건의 연산"), closeSoftKeyboard());
+        scenario.recreate();
+        onView(withContentDescription("1.2 소주제")).check(matches(withText("사건의 연산")));
+        onView(withContentDescription("1.1 소주제")).perform(scrollTo());
+        capture("grouped-outline-editor");
+        onView(withText("수업 만들기")).perform(click());
+        AtomicReference<String> sid = new AtomicReference<>();
+        await(() -> {
+            scenario.onActivity(a -> {
+                androidx.fragment.app.Fragment fragment = a.getSupportFragmentManager().findFragmentById(R.id.main);
+                if (fragment != null && "online_session".equals(fragment.getTag()))
+                    sid.set(ScreenContext.from(fragment.getArguments()).lessonId);
+            });
+            return sid.get() != null && cached(teacher, sid.get()).optInt("topicCount") == 3;
+        });
+        JSONObject bootstrap = call(teacher, "getSessionBootstrap", OnlineJson.values("sessionId", sid.get()));
+        JSONArray topics = bootstrap.getJSONArray("topics");
+        String mainId = topics.getJSONObject(0).getString("id");
+        assertEquals(mainId, topics.getJSONObject(2).getString("parentTopicId"));
+        String removedId = topics.getJSONObject(2).getString("id");
+        await(() -> teacher.db.store().document(sid.get(), "TOPIC", removedId) != null);
+        onView(withText("목차 편집")).perform(scrollTo(), click());
+        onView(withContentDescription("1.2 소주제 더보기")).perform(scrollTo(), click());
+        onView(withText("소주제 삭제")).perform(click());
+        onView(withText("삭제")).perform(click());
+        onView(withText("수업 정보 저장")).perform(click());
+        await(() -> cached(teacher, sid.get()).optInt("topicCount") == 2
+                && teacher.db.store().document(sid.get(), "TOPIC", removedId) == null);
+        onView(withText("1.1 사건의 정의")).perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withText("1.2 사건의 연산")).check(
+                androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+    }
+
     private void capture(String name) throws Exception {
         Bitmap b = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(b);

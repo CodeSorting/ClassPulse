@@ -9,12 +9,18 @@ public final class Models {
     public static final String STUDENT_ID = "demo-student";
     public static final String READY = "READY", LIVE = "LIVE", ENDED = "ENDED";
     public static final String DRAFT = "DRAFT", SUBMITTED = "SUBMITTED", ANSWERED = "ANSWERED";
+    public static final String DEMO_CURRENT_LESSON_ID = "demo-session-current";
+    public static final String DEMO_REVIEW_LESSON_ID = "demo-session-review";
     public static final String UNDERSTANDING = "UNDERSTANDING",
             SPEED = "SPEED",
             TERM = "TERM",
             CALCULATION = "CALCULATION";
 
     private Models() {}
+
+    public static boolean isBuiltInLesson(String id) {
+        return DEMO_CURRENT_LESSON_ID.equals(id) || DEMO_REVIEW_LESSON_ID.equals(id);
+    }
 
     public static final class Lesson {
         public String id = "",
@@ -44,6 +50,34 @@ public final class Models {
         public Topic topic(String id) {
             if (id != null) for (Topic t : topics) if (id.equals(t.id)) return t;
             return null;
+        }
+
+        public List<Topic> children(String parentId) {
+            List<Topic> children = new ArrayList<>();
+            for (Topic topic : topics)
+                if (java.util.Objects.equals(topic.parentTopicId, parentId)) children.add(topic);
+            return children;
+        }
+
+        public List<Topic> teachingTopics() {
+            List<Topic> steps = new ArrayList<>();
+            for (Topic topic : topics)
+                if (children(topic.id).isEmpty()) steps.add(topic);
+            return steps;
+        }
+
+        public String topicLabel(Topic topic) {
+            Topic parent = topic(topic.parentTopicId);
+            List<Topic> roots = children(null);
+            if (parent == null) return (roots.indexOf(topic) + 1) + ". " + topic.title;
+            int main = roots.indexOf(parent) + 1;
+            int sub = children(parent.id).indexOf(topic) + 1;
+            return main + "." + sub + " " + topic.title;
+        }
+
+        public String topicPath(Topic topic) {
+            Topic parent = topic(topic.parentTopicId);
+            return parent == null ? topic.title : parent.title + " › " + topic.title;
         }
 
         public Question question(String id) {
