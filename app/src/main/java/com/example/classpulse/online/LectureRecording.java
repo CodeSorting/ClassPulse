@@ -13,6 +13,8 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
@@ -38,13 +40,18 @@ public final class LectureRecording extends Service {
     public static final long MAX_BYTES = 64L * 1024 * 1024;
     private static final MutableLiveData<Event> events = new MutableLiveData<>();
     private static final Set<String> importing = ConcurrentHashMap.newKeySet();
+    private static final Set<String> finalizing = ConcurrentHashMap.newKeySet();
     private static final ExecutorService fileIo = Executors.newSingleThreadExecutor();
-    private static String activeKey = "";
+    private static volatile String activeKey = "";
+    private static final long CHUNK_BYTES = 384 * 1024;
 
     private MediaRecorder recorder;
     private FirebaseAuth auth;
     private String uid, sessionId;
     private Saved pending;
+    private int segment;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable timeLimit = this::finishRecording;
     private final FirebaseAuth.AuthStateListener authListener = value -> {
         FirebaseUser user = value.getCurrentUser();
         if (user == null || !user.getUid().equals(uid)) finishRecording();
@@ -81,7 +88,15 @@ public final class LectureRecording extends Service {
     }
 
     public static boolean hasActiveRecording() {
-        return !activeKey.isEmpty();
+        return !activeKey.isEmpty() || !finalizing.isEmpty();
+    }
+
+    public static boolean isFinalizing(String uid, String sid) { return finalizing.contains(key(uid, sid)); }
+    public static boolean hasPending(Context context, String uid, String sid) {
+        return !files(context).getString(key(uid, sid) + "/pending", "").isEmpty();
+    }
+    public static String savedNotice(Context context, String uid, String sid) {
+        return files(context).getString(key(uid, sid) + "/notice", "");
     }
 
     public static boolean isImporting(String uid, String sessionId) {
@@ -103,16 +118,6 @@ public final class LectureRecording extends Service {
     public static Saved saved(Context context, String uid, String sessionId) {
         SharedPreferences prefs = files(context);
         String key = key(uid, sessionId);
-        if (!isRecording(uid, sessionId)) {
-            String interrupted = prefs.getString(key + "/pending", "");
-            if (!interrupted.isEmpty()) {
-                File candidate = file(context, uid, sessionId, interrupted);
-                long startedAt = prefs.getLong(key + "/pendingStartedAt", 0);
-                SharedPreferences.Editor update = prefs.edit().remove(key + "/pending").remove(key + "/pendingStartedAt");
-                if (startedAt > 0 && playable(candidate, false)) update.putString(key, interrupted).putLong(key + "/startedAt", startedAt);
-                update.apply();
-            }
-        }
         String id = prefs.getString(key, "");
         if (id.isEmpty()) return null;
         File file = file(context, uid, sessionId, id);
@@ -122,7 +127,8 @@ public final class LectureRecording extends Service {
     public static void importM4a(Context context, String uid, String sessionId, Uri source) {
         Context app = context.getApplicationContext();
         String key = key(uid, sessionId);
-        if (!importing.add(key)) return;
+        if (isRecording(uid, sessionId) || isFinalizing(uid, sessionId) || hasPending(context, uid, sessionId)
+                || !importing.add(key)) return;
         events.setValue(new Event(uid, sessionId, "녹음 파일을 불러오고 있어요."));
         fileIo.execute(() -> {
             String id = OnlineJson.id();
@@ -154,7 +160,8 @@ public final class LectureRecording extends Service {
                 }
                 if (!partial.renameTo(destination)) return;
                 // Imported recordings have no timestamp on this session's lesson timeline.
-                files(app).edit().putString(key, id).putLong(key + "/startedAt", 0L).apply();
+                if (!files(app).edit().putString(key, id).putLong(key + "/startedAt", 0L)
+                        .remove(key + "/notice").commit()) throw new java.io.IOException("recording metadata");
                 message = "테스트 녹음 파일을 불러왔어요. 녹음 업로드를 눌러 주세요.";
             } catch (Exception ignored) {
                 // Keep the current recording when reading or copying the selected file fails.
@@ -166,7 +173,7 @@ public final class LectureRecording extends Service {
         });
     }
 
-    private static boolean playable(File file, boolean m4aOnly) {
+    static boolean playable(File file, boolean m4aOnly) {
         if (!file.isFile() || file.length() == 0) return false;
         MediaMetadataRetriever reader = new MediaMetadataRetriever();
         try {
@@ -190,6 +197,8 @@ public final class LectureRecording extends Service {
     }
 
     public static void start(Context context, String uid, String sessionId) {
+        if (hasActiveRecording() || isImporting(uid, sessionId) || hasPending(context, uid, sessionId))
+            throw new IllegalStateException("recording is busy or awaiting recovery");
         ContextCompat.startForegroundService(context, new Intent(context, LectureRecording.class)
                 .putExtra("uid", uid).putExtra("sessionId", sessionId));
     }
@@ -204,7 +213,7 @@ public final class LectureRecording extends Service {
             finishRecording();
             return START_NOT_STICKY;
         }
-        if (recorder != null) return START_NOT_STICKY;
+        if (recorder != null || !finalizing.isEmpty()) return START_NOT_STICKY;
         uid = intent.getStringExtra("uid");
         sessionId = intent.getStringExtra("sessionId");
         auth = FirebaseAuth.getInstance();
@@ -216,42 +225,65 @@ public final class LectureRecording extends Service {
         }
         try {
             foreground();
+            if (hasPending(this, uid, sessionId) || isImporting(uid, sessionId))
+                throw new IllegalStateException("pending recording");
             String id = OnlineJson.id();
             File file = file(this, uid, sessionId, id);
             File directory = file.getParentFile();
             if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) {
                 throw new IllegalStateException("recording directory");
             }
-            recorder = Build.VERSION.SDK_INT >= 31 ? new MediaRecorder(this) : new MediaRecorder();
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setAudioEncodingBitRate(48000);
-            recorder.setAudioSamplingRate(44100);
-            recorder.setAudioChannels(1);
-            recorder.setMaxFileSize(MAX_BYTES);
-            recorder.setMaxDuration(2 * 60 * 60 * 1000);
-            recorder.setOutputFile(file.getAbsolutePath());
-            recorder.setOnInfoListener((source, what, extra) -> {
-                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED ||
-                        what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) finishRecording();
-            });
-            recorder.setOnErrorListener((source, what, extra) -> finishRecording());
-            recorder.prepare();
-            recorder.start();
             pending = new Saved(id, System.currentTimeMillis(), file);
+            // Commit the recovery journal before audio starts, including on sudden process loss.
+            if (!files(this).edit().putString(key(uid, sessionId) + "/pending", id)
+                    .putLong(key(uid, sessionId) + "/pendingStartedAt", pending.startedAt)
+                    .remove(key(uid, sessionId) + "/notice").commit()) throw new java.io.IOException("recording metadata");
+            segment = 0;
+            startSegment();
             activeKey = key(uid, sessionId);
-            files(this).edit().putString(activeKey + "/pending", id)
-                    .putLong(activeKey + "/pendingStartedAt", pending.startedAt).apply();
+            main.postDelayed(timeLimit, 2 * 60 * 60 * 1000L);
             auth.addAuthStateListener(authListener);
             events.setValue(new Event(uid, sessionId, "수업을 녹음하고 있어요."));
         } catch (Exception error) {
             if (recorder != null) recorder.release();
             recorder = null;
+            activeKey = "";
             events.setValue(new Event(uid, sessionId, "녹음을 시작하지 못했어요. 마이크 권한과 저장 공간을 확인해 주세요."));
             stopSelf();
         }
         return START_NOT_STICKY;
+    }
+
+    private void startSegment() throws java.io.IOException {
+        recorder = Build.VERSION.SDK_INT >= 31 ? new MediaRecorder(this) : new MediaRecorder();
+        recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        recorder.setAudioEncodingBitRate(48000);
+        recorder.setAudioSamplingRate(44100);
+        recorder.setAudioChannels(1);
+        recorder.setMaxFileSize(CHUNK_BYTES);
+        recorder.setOutputFile(LectureSegments.part(pending.file, segment).getAbsolutePath());
+        recorder.setOnInfoListener((source, what, extra) -> {
+            if (source != recorder) return;
+            if (Build.VERSION.SDK_INT >= 26 && what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_APPROACHING) {
+                if ((segment + 2L) * CHUNK_BYTES >= MAX_BYTES) { finishRecording(); return; }
+                try { source.setNextOutputFile(LectureSegments.part(pending.file, ++segment)); }
+                catch (Exception error) { finishRecording(); }
+            } else if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                if (Build.VERSION.SDK_INT >= 26 || (segment + 2L) * CHUNK_BYTES >= MAX_BYTES) finishRecording();
+                else {
+                    // Android 7 lacks seamless rollover. Finalize each checkpoint before restarting.
+                    try {
+                        source.stop(); source.release(); recorder = null; segment++;
+                        startSegment();
+                    } catch (Exception error) { finishRecording(); }
+                }
+            }
+        });
+        recorder.setOnErrorListener((source, what, extra) -> { if (source == recorder) finishRecording(); });
+        recorder.prepare();
+        recorder.start();
     }
 
     private void foreground() {
@@ -274,36 +306,84 @@ public final class LectureRecording extends Service {
     }
 
     private void finishRecording() {
-        saveRecording();
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-        stopSelf();
+        stopRecorder();
+        if (uid == null || sessionId == null) { stopSelf(); return; }
+        recover(this, uid, sessionId, false, () -> {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+            stopSelf();
+        });
     }
 
-    private void saveRecording() {
-        if (recorder == null) return;
-        boolean saved = false;
+    private void stopRecorder() {
+        main.removeCallbacks(timeLimit);
         try {
-            recorder.stop();
-            saved = pending != null && pending.file.length() > 0;
+            if (recorder != null) recorder.stop();
         } catch (RuntimeException ignored) {
-            // Keep the prior completed recording when the current recording cannot be closed.
+            // Recover finalized chunks even when the last MP4 could not be closed.
         } finally {
-            recorder.release();
+            if (recorder != null) recorder.release();
             recorder = null;
             activeKey = "";
             if (auth != null) auth.removeAuthStateListener(authListener);
         }
-        String key = key(uid, sessionId);
-        SharedPreferences.Editor update = files(this).edit().remove(key + "/pending").remove(key + "/pendingStartedAt");
-        if (saved) update.putString(key, pending.id).putLong(key + "/startedAt", pending.startedAt);
-        update.apply();
         pending = null;
-        events.setValue(new Event(uid, sessionId, saved ? "녹음을 기기에 저장했어요." : "녹음을 저장하지 못했어요."));
+    }
+
+    public static void recover(Context context, String uid, String sid) { recover(context, uid, sid, true, null); }
+
+    private static void recover(Context context, String uid, String sid, boolean interrupted, Runnable done) {
+        if (isRecording(uid, sid)) return;
+        Context app = context.getApplicationContext();
+        String key = key(uid, sid);
+        if (!finalizing.add(key)) return;
+        events.postValue(new Event(uid, sid, "저장된 녹음 구간을 확인하고 있어요."));
+        fileIo.execute(() -> {
+            String message = "녹음 저장을 마치지 못했어요. 저장 공간을 확인하고 복구를 다시 시도해 주세요.";
+            try {
+                SharedPreferences prefs = files(app);
+                String id = prefs.getString(key + "/pending", "");
+                if (id.isEmpty()) return;
+                File output = file(app, uid, sid, id);
+                long start = prefs.getLong(key + "/pendingStartedAt", 0);
+                LectureSegments.Result result = null;
+                if (!playable(output, false) && LectureSegments.directory(output).isDirectory()) {
+                    if (output.exists()) throw new java.io.IOException("existing incomplete output");
+                    result = LectureSegments.assemble(output);
+                }
+                boolean valid = start > 0 && playable(output, false);
+                SharedPreferences.Editor update = prefs.edit();
+                if (valid) {
+                    boolean partial = interrupted || result != null && result.partial;
+                    message = partial ? "저장된 구간까지 녹음을 복구했어요. 중단 직전 구간은 빠질 수 있어요."
+                            : "녹음을 기기에 저장했어요.";
+                    if (partial && result != null) message += " 복구 길이 " + (result.durationMs / 60000) + "분 "
+                            + (result.durationMs / 1000 % 60) + "초";
+                    update.putString(key, id).putLong(key + "/startedAt", start);
+                } else {
+                    message = "중단된 녹음에 복구할 수 있는 구간이 없어요. 이전에 저장한 녹음은 유지돼요.";
+                }
+                update.remove(key + "/pending").remove(key + "/pendingStartedAt").putString(key + "/notice", message);
+                if (!update.commit()) throw new java.io.IOException("recording metadata");
+                if (valid) LectureSegments.cleanCompleted(output);
+            } catch (Exception ignored) {
+                // Keep the journal and all source chunks for a later retry (e.g. disk full).
+                message = "녹음 저장을 마치지 못했어요. 저장 공간을 확인하고 복구를 다시 시도해 주세요.";
+            } finally {
+                String completedMessage = message;
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (done != null) done.run();
+                    finalizing.remove(key);
+                    events.setValue(new Event(uid, sid, completedMessage));
+                });
+            }
+        });
     }
 
     @Override
     public void onDestroy() {
-        saveRecording();
+        boolean needsRecovery = recorder != null;
+        stopRecorder();
+        if (needsRecovery && uid != null) recover(this, uid, sessionId);
         super.onDestroy();
     }
 

@@ -324,12 +324,15 @@ public final class OnlineRepository implements AutoCloseable {
                             db.runInTransaction(() -> {
                                 for (int i = 0; i < docs.length(); i++) {
                                     JSONObject doc = docs.optJSONObject(i);
-                                    if (doc != null) document(sid, kind, doc.optString("id"), doc);
+                                    if (doc != null) document(sid, kind.startsWith("TOPIC_QUESTION:") ? "QUESTION" : kind,
+                                            doc.optString("id"), doc);
                                 }
                             });
                         success(
                                 callback,
-                                OnlineJson.values("count", docs == null ? 0 : docs.length()));
+                                OnlineJson.values("count", docs == null ? 0 : docs.length(),
+                                        "lastId", docs == null || docs.length() == 0 ? ""
+                                                : docs.optJSONObject(docs.length() - 1).optString("id")));
                     });
                 });
     }

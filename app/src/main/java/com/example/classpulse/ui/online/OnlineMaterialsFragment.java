@@ -34,6 +34,7 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
     private String recordingNotice = "", uploadId = "";
     private LiveData<List<WorkInfo>> uploadWork;
     private WorkInfo upload;
+    private boolean recoveryChecked;
     private final ActivityResultLauncher<String> microphone = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), granted -> {
                 if (granted && shell != null) checkNotification();
@@ -128,11 +129,26 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
         LectureRecording.Saved saved = LectureRecording.saved(requireContext(), repo.uid, screen.lessonId);
         ui.section(shell.content, "수업 녹음", recording ? "녹음 중" : saved == null ? "저장된 녹음 없음" : "기기에 저장된 녹음 있음");
         if (!recordingNotice.isEmpty()) ui.note(shell.content, recordingNotice);
+        String savedNotice = LectureRecording.savedNotice(requireContext(), repo.uid, screen.lessonId);
+        if (!savedNotice.isEmpty() && !savedNotice.equals(recordingNotice)) ui.note(shell.content, savedNotice);
+        if (LectureRecording.isFinalizing(repo.uid, screen.lessonId)) {
+            ui.note(shell.content, "녹음 파일 저장·복구 중이에요. 완료 후 업로드할 수 있어요.");
+            return;
+        }
+        if (!recording && LectureRecording.hasPending(requireContext(), repo.uid, screen.lessonId)) {
+            if (!recoveryChecked) {
+                recoveryChecked = true;
+                LectureRecording.recover(requireContext(), repo.uid, screen.lessonId);
+            }
+            ui.button(shell.content, "녹음 복구 다시 시도", true,
+                    () -> LectureRecording.recover(requireContext(), repo.uid, screen.lessonId));
+            return;
+        }
         if (recording) {
             ui.button(shell.content, "녹음 종료 및 저장", true, () -> LectureRecording.stop(requireContext()));
             return;
         }
-        if ("LIVE".equals(state)) {
+        if ("LIVE".equals(state) && !LectureRecording.isImporting(repo.uid, screen.lessonId)) {
             ui.button(shell.content, saved == null ? "수업 녹음 시작" : "새 녹음 시작", true, this::confirmRecording);
         }
         if (!"ENDED".equals(state)) return;
@@ -308,6 +324,9 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
     private void showNotes(boolean teacher, JSONArray notes) {
         ui.section(shell.content, "대주제별 요약과 보충 설명", teacher ? "AI 초안을 검토한 뒤 학생에게 공개할 수 있어요." : "");
         if (teacher) {
+            if (!screen.topicId.isEmpty() && item("TOPIC", screen.topicId).has("title"))
+                ui.button(shell.content, topicTitle(screen.topicId) + " · 보충 설명 작성", true,
+                        () -> editNote(screen.topicId, notes)).setEnabled(!sending);
             ui.button(shell.content, "대주제 자료 편집", false, () -> chooseTopic(false, id -> editNote(id, notes)))
                     .setEnabled(!sending);
         }

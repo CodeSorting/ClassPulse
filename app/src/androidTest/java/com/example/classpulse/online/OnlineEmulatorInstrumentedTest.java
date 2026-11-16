@@ -211,6 +211,8 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     private void capture(String name) throws Exception {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        android.os.SystemClock.sleep(250); // Let the emulator compositor present the scrolled frame.
         Bitmap b = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(b);
         File dir = new File(context.getExternalFilesDir(null), "verification");
@@ -372,6 +374,71 @@ public class OnlineEmulatorInstrumentedTest {
         scenario.onActivity(a -> a.navigate("online_session", ScreenContext.empty().forLesson(sid)));
         await(() -> cached(account, sid).has("progressVersion"));
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
+    @Test
+    public void teacherAnalysisUsesDistinctStudentsAndLinksTheSelectedTopic() throws Exception {
+        Client teacher = client(), student = client(), secondStudent = client();
+        JSONObject f = create(teacher);
+        String sid = f.optString("sid"), topic = f.optString("first");
+        join(teacher, student, sid);
+        join(teacher, secondStudent, sid);
+        JSONObject start = mutate(teacher, "changeProgress", OnlineJson.values("sessionId", sid,
+                "action", "START", "expectedProgressVersion", 0));
+        String firstVisit = start.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid, "topicId", topic,
+                "visitId", firstVisit, "type", "UNDERSTANDING"));
+        mutate(teacher, "changeProgress", OnlineJson.values("sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
+        JSONObject revisit = mutate(teacher, "changeProgress", OnlineJson.values("sessionId", sid,
+                "action", "REVISIT", "topicId", topic, "expectedProgressVersion", 2));
+        String secondVisit = revisit.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid, "topicId", topic,
+                "visitId", secondVisit, "type", "UNDERSTANDING"));
+        mutate(student, "submitQuestion", OnlineJson.values("sessionId", sid, "id", OnlineJson.id(),
+                "topicId", topic, "text", "분석 화면에서 찾는 질문", "baseRevision", 0));
+        showSession(teacher, sid);
+        await(() -> teacher.db.store().document(sid, "STATS", "topic_" + topic) != null
+                && teacher.db.store().document(sid, "VISIT", secondVisit) != null);
+        onView(withText("교수 수업 분석")).perform(scrollTo(), click());
+        onView(withText("2건 · 1명 · 50%")).perform(scrollTo()).check(matches(isDisplayed()));
+        capture("online-analysis-topic-ratios");
+        onView(withText("조건부확률 · 재설명")).perform(scrollTo()).check(matches(isDisplayed()));
+        capture("online-analysis-visits");
+        onView(withText("조건부확률 · 질문 보기")).perform(scrollTo(), click());
+        await(() -> hasText("분석 화면에서 찾는 질문"));
+        await(() -> {
+            try { onView(withText("질문 새로고침")).check(matches(isEnabled())); return true; }
+            catch (Throwable ignored) { return false; }
+        });
+        onView(withText("이 대주제 복습 퀴즈")).perform(scrollTo(), click());
+        await(() -> hasText("문제 직접 추가"));
+        onView(withText("문제 직접 추가")).perform(scrollTo()).check(matches(isDisplayed()));
+        scenario.onActivity(a -> a.navigate("online_analysis", ScreenContext.empty().forLesson(sid)));
+        await(() -> {
+            try { onView(withText("조건부확률 · 보충 설명")).perform(scrollTo()).check(matches(isDisplayed())); return true; }
+            catch (Throwable ignored) { return false; }
+        });
+        onView(withText("조건부확률 · 보충 설명")).perform(scrollTo(), click());
+        await(() -> {
+            try { onView(withText("조건부확률 · 보충 설명 작성")).perform(scrollTo()); return true; }
+            catch (Throwable ignored) { return false; }
+        });
+        onView(withText("조건부확률 · 보충 설명 작성")).perform(click());
+        onView(withText("AI 보충 설명 초안")).perform(scrollTo()).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void studentCannotOpenTeacherAnalysisOrReadTopicAggregates() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject f = create(teacher);
+        String sid = f.optString("sid");
+        join(teacher, student, sid);
+        showSession(student, sid);
+        onView(withText("교수 수업 분석")).check(doesNotExist());
+        scenario.onActivity(a -> a.navigate("online_analysis", ScreenContext.empty().forLesson(sid)));
+        await(() -> hasText("이 수업의 교수자만 분석을 볼 수 있어요."));
+        assertThrows(ExecutionException.class, () -> Tasks.await(student.firestore.collection("sessions/" + sid + "/analytics")
+                .get(Source.SERVER), 20, TimeUnit.SECONDS));
     }
 
     @Test
@@ -800,6 +867,18 @@ public class OnlineEmulatorInstrumentedTest {
         assertNotEquals(
                 list.getJSONObject(29).optString("id"),
                 second.getJSONArray("documents").getJSONObject(0).optString("id"));
+        mutate(student, "submitQuestion", OnlineJson.values("sessionId", sid, "id", OnlineJson.id(),
+                "topicId", f.optString("second"), "text", "다른 대주제 질문", "baseRevision", 0));
+        JSONObject scoped = teacher.transport.page(teacher.uid, sid, "TOPIC_QUESTION:" + topic, true, "")
+                .get(30, TimeUnit.SECONDS);
+        JSONArray scopedItems = scoped.getJSONArray("documents");
+        assertEquals(30, scopedItems.length());
+        for (int i = 0; i < scopedItems.length(); i++) assertEquals(topic, scopedItems.getJSONObject(i).getString("topicId"));
+        JSONObject next = teacher.transport.page(teacher.uid, sid, "TOPIC_QUESTION:" + topic, true,
+                scopedItems.getJSONObject(29).getString("id")).get(30, TimeUnit.SECONDS);
+        assertEquals(1, next.getJSONArray("documents").length());
+        assertThrows(ExecutionException.class, () -> student.transport
+                .page(student.uid, sid, "TOPIC_QUESTION:" + topic, true, "").get(30, TimeUnit.SECONDS));
     }
 
     @Test

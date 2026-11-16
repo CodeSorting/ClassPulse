@@ -28,6 +28,7 @@ public final class OnlineQuizzesFragment extends OnlineLearningPage {
     private JSONObject quiz, result;
     private int index;
     private int[] answers;
+    private boolean initialTopicOpened;
 
     @Override protected String title() { return "복습 퀴즈"; }
     @Override protected String loadAction() { return "getLearningQuizzes"; }
@@ -36,6 +37,7 @@ public final class OnlineQuizzesFragment extends OnlineLearningPage {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         if (state == null) return;
+        initialTopicOpened = state.getBoolean("initialTopicOpened");
         topic = state.getString("topic", "");
         quizTitle = state.getString("quizTitle", "");
         revision = state.getLong("revision");
@@ -57,6 +59,7 @@ public final class OnlineQuizzesFragment extends OnlineLearningPage {
     public void onSaveInstanceState(@NonNull Bundle out) {
         super.onSaveInstanceState(out);
         out.putString("topic", topic);
+        out.putBoolean("initialTopicOpened", initialTopicOpened);
         out.putString("quizTitle", quizTitle);
         out.putLong("revision", revision);
         out.putString("items", new JSONArray(items).toString());
@@ -86,6 +89,11 @@ public final class OnlineQuizzesFragment extends OnlineLearningPage {
         }
         if (sending) ui.note(shell.content, "서버 요청을 처리하고 있어요.");
         if (teacher) {
+            if (!initialTopicOpened && !screen.topicId.isEmpty() && !item("TOPIC", screen.topicId).optString("title").isEmpty()) {
+                initialTopicOpened = true;
+                editTopic(screen.topicId);
+                return;
+            }
             if (topic.isEmpty()) showTeacherList();
             else showTeacherEditor();
         } else if (result != null) showResult();

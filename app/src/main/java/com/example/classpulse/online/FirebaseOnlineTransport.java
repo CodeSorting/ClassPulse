@@ -103,6 +103,13 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                 time = "PUBLIC_QNA".equals(kind) ? "publishedAt" : "submittedAt";
         CollectionReference ref = db.collection("sessions/" + sid + "/" + collection);
         Query base = ref;
+        if (kind.startsWith("TOPIC_QUESTION:")) {
+            if (!owner) {
+                out.completeExceptionally(new Failure("OWNER_REQUIRED", "교수자만 주제별 질문 목록을 볼 수 있어요."));
+                return out;
+            }
+            base = base.whereEqualTo("topicId", kind.substring("TOPIC_QUESTION:".length()));
+        }
         if ("QUESTION".equals(kind) && !owner) base = base.whereEqualTo("authorUid", uid);
         final Query ordered =
                 base.orderBy(time, Query.Direction.DESCENDING)
@@ -245,7 +252,8 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                 all);
         if (owner) {
             watch(db.collection(base + "/teacherDrafts"), "ANSWER_DRAFT", sink, all);
-            watch(db.document(base + "/analytics/summary"), "STATS", sink, all);
+            watch(db.collection(base + "/analytics"), "STATS", sink, all);
+            watch(db.collection(base + "/visits").orderBy("startedAt"), "VISIT", sink, all);
         }
         return () -> {
             for (ListenerRegistration r : all) r.remove();

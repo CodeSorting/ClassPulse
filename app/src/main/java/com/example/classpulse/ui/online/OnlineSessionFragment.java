@@ -48,6 +48,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                     false, () -> open("online_quizzes"));
         }
         if (teacher) {
+            ui.button(shell.content, "교수 수업 분석", false, () -> open("online_analysis"));
             if ("READY".equals(s.optString("status"))) {
                 ui.button(shell.content, "대주제 편집", false, () -> open("online_edit"));
                 ui.button(shell.dock, "수업 시작", true, () -> progress("START", null))

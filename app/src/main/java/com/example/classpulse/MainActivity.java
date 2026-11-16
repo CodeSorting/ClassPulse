@@ -363,6 +363,12 @@ public final class MainActivity extends AppCompatActivity {
             case "online_session":
                 f = new OnlineSessionFragment();
                 break;
+            case "online_analysis":
+                f = new OnlineAnalyticsFragment();
+                break;
+            case "online_topic_questions":
+                f = new OnlineTopicQuestionsFragment();
+                break;
             case "online_question_edit":
                 f = new OnlineQuestionEditorFragment();
                 break;
