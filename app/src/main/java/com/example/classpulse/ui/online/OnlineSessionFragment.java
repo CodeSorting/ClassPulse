@@ -55,11 +55,11 @@ public final class OnlineSessionFragment extends OnlineFragment {
         showNotice();
         renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
         boolean ended = "ENDED".equals(s.optString("status"));
-        if (teacher || ended) {
-            ui.button(shell.content, teacher ? "녹음·수업 자료" : "수업 원문·복습 자료",
-                    false, () -> open("online_material"));
-            ui.button(shell.content, teacher ? "복습 퀴즈 작성" : "복습 퀴즈 풀기",
-                    false, () -> open("online_quizzes"));
+        if (ended) {
+            reviewHub(teacher);
+        } else if (teacher) {
+            ui.button(shell.content, "녹음·수업 자료", false, () -> open("online_material"));
+            ui.button(shell.content, "복습 퀴즈 작성", false, () -> open("online_quizzes"));
         }
         if (teacher) {
             if ("READY".equals(s.optString("status"))) {
@@ -244,6 +244,29 @@ public final class OnlineSessionFragment extends OnlineFragment {
         }
         pending();
         ui.button(shell.content, "전송 상태 다시 확인", false, repo::retry);
+    }
+
+    /** 종료된 수업의 복습 메뉴. 전체 원문과 요약을 따로 열 수 있게 나눈다. */
+    private void reviewHub(boolean teacher) {
+        ui.section(shell.content, "수업 후 복습",
+                teacher ? "녹음을 원문으로 바꾸고, 요약과 퀴즈를 검토해 학생에게 공개해요."
+                        : "전체 원문과 요약을 나눠서 보고, 퀴즈로 확인해요.");
+        if (teacher)
+            ui.card(shell.content, "녹음·전체 원문 검토", "녹음 업로드, STT 변환, 오인식 수정 후 공개해요.",
+                    "검토·공개", () -> open("online_material"));
+        else
+            ui.card(shell.content, "전체 강의 원문", "수업 처음부터 끝까지 구간별로 읽어요.",
+                    "원문", () -> open("online_transcript"));
+        ui.card(shell.content, "대주제별 요약·보충 설명",
+                teacher ? "AI 초안을 고쳐서 대주제마다 공개해요." : "핵심만 빠르게 다시 봐요.",
+                "요약", () -> open("online_summary"));
+        ui.card(shell.content, teacher ? "복습 퀴즈 출제" : "복습 퀴즈 풀기",
+                teacher ? "직접 쓰거나 AI 초안으로 문제를 만들어요." : "내 속도로 풀고 해설을 확인해요.",
+                "퀴즈", () -> open("online_quizzes"));
+        if (!teacher)
+            ui.card(shell.content, "내 질문·표시 기록", "궁금했던 순간과 작성 중인 질문을 다시 찾아요.",
+                    "나만 보는 기록", () -> open("online_records", screen.forLesson(screen.lessonId)));
+        ui.note(shell.content, "공개 Q&A는 이 화면 아래쪽에서 대주제별로 확인할 수 있어요.");
     }
 
     private String reactionLabel(int i, String visit) {

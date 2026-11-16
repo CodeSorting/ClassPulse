@@ -48,7 +48,20 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
 
     @Override
     protected String title() {
-        return "녹음 및 복습 자료";
+        switch (section()) {
+            case "transcript":
+                return "전체 강의 원문";
+            case "summary":
+                return "요약·보충 설명";
+            default:
+                return "녹음 및 복습 자료";
+        }
+    }
+
+    /** "transcript"=원문만, "summary"=요약·보충 설명만, ""=녹음 포함 전체(교수용). */
+    private String section() {
+        Bundle args = getArguments();
+        return args == null ? "" : args.getString("material_section", "");
     }
 
     @Override
@@ -104,22 +117,34 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
         }
         boolean teacher = owner();
         shell.roleLabel.setText(teacher ? "교수자" : "학생");
-        ui.heading(shell.content, lesson.optString("title"), "수업 원문 · 대주제별 요약 · 보충 설명");
-        if (teacher) showRecording(lesson.optString("status"));
+        String section = section();
+        boolean wantTranscript = !"summary".equals(section);
+        boolean wantNotes = !"transcript".equals(section);
+        ui.heading(shell.content, lesson.optString("title"),
+                "transcript".equals(section) ? "수업 처음부터 끝까지, 구간별 전체 원문"
+                        : "summary".equals(section) ? "대주제별 요약과 교수 보충 설명"
+                        : "수업 원문 · 대주제별 요약 · 보충 설명");
+        if (teacher && section.isEmpty()) showRecording(lesson.optString("status"));
         ui.button(shell.content, loading ? "자료 불러오는 중…" : "자료 상태 새로고침", false, this::reload)
                 .setEnabled(!loading && !sending);
         if (sending) ui.note(shell.content, "서버 요청을 처리하고 있어요.");
         if (content == null) return;
-        if (teacher) showJob(content.optJSONObject("job"));
-        JSONObject material = content.optJSONObject("material");
-        JSONArray parts = content.optJSONArray("parts");
-        if (material == null || parts == null || parts.length() == 0) {
-            ui.note(shell.content, teacher ? "녹음을 변환하면 이 화면에서 원문을 검토할 수 있어요."
-                    : "교수가 공개한 원문이 아직 없어요.");
-        } else {
-            showTranscript(teacher, material, parts);
+        if (teacher && section.isEmpty()) showJob(content.optJSONObject("job"));
+        if (wantTranscript) {
+            JSONObject material = content.optJSONObject("material");
+            JSONArray parts = content.optJSONArray("parts");
+            if (material == null || parts == null || parts.length() == 0) {
+                ui.note(shell.content, teacher ? "녹음을 변환하면 이 화면에서 원문을 검토할 수 있어요."
+                        : "교수가 공개한 원문이 아직 없어요.");
+            } else {
+                showTranscript(teacher, material, parts);
+            }
         }
-        showNotes(teacher, content.optJSONArray("notes"));
+        if (wantNotes) showNotes(teacher, content.optJSONArray("notes"));
+        if ("transcript".equals(section))
+            ui.button(shell.content, "요약·보충 설명 보기", false, () -> open("online_summary"));
+        else if ("summary".equals(section) && !teacher)
+            ui.button(shell.content, "전체 원문 보기", false, () -> open("online_transcript"));
         ui.button(shell.content, "복습 퀴즈", false, () -> open("online_quizzes"));
     }
 
