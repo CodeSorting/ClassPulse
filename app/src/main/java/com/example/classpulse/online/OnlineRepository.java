@@ -501,14 +501,30 @@ public final class OnlineRepository implements AutoCloseable {
         enqueue(command, sid, payload, false, callback);
     }
 
+    public static String reactionKey(String sid, String visitId, String type) {
+        return "setReaction:" + sid + ":" + visitId + ":" + type;
+    }
+
+    public void setReaction(String sid, String topicId, String visitId, String type,
+                            boolean selected, long baseRevision, Callback callback) {
+        enqueue("setReaction", sid, reactionKey(sid, visitId, type), OnlineJson.values(
+                "sessionId", sid, "topicId", topicId, "visitId", visitId, "type", type,
+                "selected", selected, "baseRevision", baseRevision), false, true, callback);
+    }
+
     private void enqueue(
             String command, String sid, JSONObject payload, boolean foreground, Callback callback) {
+        enqueue(command, sid, command + ":" + sid, payload, foreground, false, callback);
+    }
+
+    private void enqueue(String command, String sid, String key, JSONObject payload,
+                         boolean foreground, boolean singlePending, Callback callback) {
         local(() -> {
             if (!active()) return;
             final Outbox[] created = new Outbox[1];
             db.runInTransaction(() -> {
-                String key = command + ":" + sid;
                 Outbox previous = store.lastForEntity(key);
+                if (singlePending && previous != null) return;
                 if (previous != null && "NEEDS_CONFIRMATION".equals(previous.state)) {
                     previous.state = "REJECTED";
                     previous.errorCode = "USER_RECONFIRMED";
@@ -516,6 +532,7 @@ public final class OnlineRepository implements AutoCloseable {
                 }
                 created[0] = add(command, sid, key, payload, foreground, 0);
             });
+            if (created[0] == null) return;
             if (callback != null) callbacks.put(created[0].operationId, callback);
             drainAsync(foreground);
         });

@@ -148,7 +148,8 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
     private void watch(
             Query query, String kind, Sink sink, List<ListenerRegistration> registrations) {
         registrations.add(
-                query.addSnapshotListener((snapshot, error) -> {
+                query.addSnapshotListener("OWN_REACTION".equals(kind)
+                        ? MetadataChanges.INCLUDE : MetadataChanges.EXCLUDE, (snapshot, error) -> {
                     if (error != null) {
                         Failure f = failure(error);
                         sink.error(f.reason, f.getMessage());
@@ -252,7 +253,7 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                 all);
         watch(
                 db.collection(personal + "/reactionReceipts")
-                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .orderBy("updatedAt", Query.Direction.DESCENDING)
                         .limit(100),
                 "OWN_REACTION",
                 sink,

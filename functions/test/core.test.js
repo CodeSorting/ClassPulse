@@ -426,6 +426,83 @@ test("reaction deduplication, distinct student counts, revisit and stale-visit r
     assert.equal(summary.uniqueReactingStudents, 1);
     assert.equal(summary.uniqueStudentsByType.UNDERSTANDING, 1);
 });
+test("canceling a reaction updates all scopes without losing other visits, types, or students", async () => {
+    const f = await fixture();
+    const inv = await invite(f);
+    await join(student, f, inv);
+    await join(other, f, inv);
+    const started = await start(f);
+    const topicId = f.topics[0].id;
+    const first = { sessionId: f.sid, topicId, visitId: started.session.progress.currentVisitId,
+        type: "TERM" };
+    await mutate(student, "submitReaction", first);
+    await mutate(owner, "changeProgress", {
+        sessionId: f.sid, expectedProgressVersion: 1, action: "COMPLETE_NEXT"
+    });
+    const revisit = await mutate(owner, "changeProgress", {
+        sessionId: f.sid, topicId, expectedProgressVersion: 2, action: "REVISIT"
+    });
+    const visitId = revisit.session.progress.currentVisitId;
+    const current = { ...first, visitId };
+    await mutate(student, "submitReaction", current);
+    await mutate(student, "submitReaction", { ...current, type: "SPEED" });
+    await mutate(other, "submitReaction", current);
+
+    const base = `sessions/${f.sid}`;
+    // Simulate presence documents written before per-type counts were stored.
+    const scopes = ["summary", `topic_${topicId}`, `visit_${visitId}`];
+    for (const scope of scopes) {
+        const ref = db.doc(`${base}/reactionPresence/${hash([scope, student])}`);
+        const { uid, types } = (await ref.get()).data();
+        await ref.set({ uid, types });
+    }
+    const cancel = { ...current, operationId: op(), selected: false, baseRevision: 1 };
+    const canceled = await invoke(student, "setReaction", cancel);
+    assert.ok(canceled.receipt.deletedAt);
+    assert.equal(canceled.receipt.revision, 2);
+    assert.deepEqual(await invoke(student, "setReaction", cancel), canceled);
+    assert.equal((await mutate(student, "setReaction", { ...current, selected: false, baseRevision: 1 }))
+        .receipt.revision, 2);
+    await expectReason(() => mutate(student, "setReaction", { ...first, selected: false, baseRevision: 1 }),
+        "STALE_VISIT");
+    const stats = async scope => (await db.doc(`${base}/analytics/${scope}`).get()).data();
+    for (const scope of scopes.slice(0, 2)) {
+        const value = await stats(scope);
+        assert.equal(value.reactionEventCount, 3);
+        assert.equal(value.uniqueReactingStudents, 2);
+        assert.equal(value.eventCountsByType.TERM, 2);
+        assert.equal(value.uniqueStudentsByType.TERM, 2);
+    }
+    let value = await stats(scopes[2]);
+    assert.equal(value.reactionEventCount, 2);
+    assert.equal(value.uniqueReactingStudents, 2);
+    assert.equal(value.uniqueStudentsByType.TERM, 1);
+
+    const receipt = (await db.doc(`users/${student}/lessonData/${f.sid}/reactionReceipts/${canceled.reactionId}`).get()).data();
+    assert.ok(receipt.deletedAt);
+    assert.equal(receipt.uid, undefined);
+    const restored = await mutate(student, "setReaction", { ...current, selected: true, baseRevision: 2 });
+    assert.equal(restored.receipt.deletedAt, null);
+    assert.equal(restored.receipt.revision, 3);
+    await expectReason(() => mutate(student, "setReaction", { ...current, selected: false, baseRevision: 1 }),
+        "REACTION_CHANGED");
+    await invoke(student, "setReaction", cancel); // Late replay cannot cancel the new selection.
+    assert.equal((await stats("summary")).reactionEventCount, 4);
+
+    const closed = await mutate(owner, "setQuestionsOpen", { sessionId: f.sid,
+        baseRevision: revisit.session.revision, open: false });
+    await expectReason(() => mutate(student, "setReaction", { ...current, selected: false, baseRevision: 3 }),
+        "REACTIONS_CLOSED");
+    await mutate(owner, "setQuestionsOpen", { sessionId: f.sid, baseRevision: closed.session.revision, open: true });
+    await mutate(student, "setReaction", { ...current, selected: false, baseRevision: 3 });
+    await mutate(student, "setReaction", { ...current, type: "SPEED", selected: false, baseRevision: 1 });
+    value = await stats(scopes[2]);
+    assert.equal(value.reactionEventCount, 1);
+    assert.equal(value.uniqueReactingStudents, 1);
+    assert.equal(value.uniqueStudentsByType.SPEED, 0);
+    assert.equal((await stats("summary")).uniqueReactingStudents, 2);
+});
+
 test("closing question intake also rejects delayed reactions; reopening accepts both without duplicate counts", async () => {
     const f = await fixture();
     await join(student, f);

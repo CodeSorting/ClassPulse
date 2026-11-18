@@ -582,7 +582,8 @@ public final class LessonRepository {
                 cb);
     }
 
-    public void react(String sessionId, String uid, String type, Callback<Void> cb) {
+    public void toggleReaction(String sessionId, String uid, String visitId, String type,
+                               Callback<Boolean> cb) {
         execute(
                 () -> {
                     LessonRow l = requireLesson(sessionId);
@@ -592,10 +593,14 @@ public final class LessonRepository {
                         throw new IllegalStateException("교수님이 질문·반응 접수를 마감했어요.");
                     if (l.currentVisitId == null)
                         throw new IllegalStateException("지금 진행 중인 대주제가 없어요.");
+                    if (!l.currentVisitId.equals(visitId))
+                        throw new IllegalStateException("진도가 바뀌었어요. 현재 주제를 다시 확인해 주세요.");
                     if (!REACTION_TYPES.contains(type))
                         throw new IllegalArgumentException("반응 유형을 다시 선택해 주세요.");
+                    String reactionId = stableId(uid, visitId, type);
+                    if (dao.deleteReaction(reactionId) != 0) return false;
                     ReactionRow r = new ReactionRow();
-                    r.id = stableId(uid, l.currentVisitId, type);
+                    r.id = reactionId;
                     r.sessionId = l.id;
                     r.topicId = l.currentTopicId;
                     r.visitId = l.currentVisitId;
@@ -603,7 +608,7 @@ public final class LessonRepository {
                     r.type = type;
                     r.createdAt = System.currentTimeMillis();
                     dao.insertReaction(r);
-                    return null;
+                    return true;
                 },
                 cb);
     }

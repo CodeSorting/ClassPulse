@@ -522,6 +522,35 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void tappingSelectedReactionCancelsItAndUpdatesTeacherThroughFirebase() throws Exception {
+        Client teacher = client(), student = client();
+        String sid = create(teacher).optString("sid");
+        join(teacher, student, sid);
+        watchers.add(teacher.repo.watchLesson(sid));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        showSession(student, sid);
+
+        String label = "용어가 어려워요", selected = "✓ " + label;
+        await(() -> hasText(label));
+        onView(withText(label)).perform(click());
+        await(() -> hasText(selected) && teacherReactionCount(teacher, sid) == 1);
+        onView(withText(selected)).perform(click());
+        await(() -> hasText(label) && teacherReactionCount(teacher, sid) == 0);
+        onView(withText(selected)).check(doesNotExist());
+        scenario.recreate();
+        await(() -> hasText(label));
+        onView(withText(selected)).check(doesNotExist());
+        onView(withText(label)).perform(click());
+        await(() -> hasText(selected) && teacherReactionCount(teacher, sid) == 1);
+    }
+
+    private int teacherReactionCount(Client teacher, String sid) {
+        OnlineDatabase.Document summary = teacher.db.store().document(sid, "STATS", "summary");
+        return summary == null ? -1 : OnlineJson.object(summary.json).optInt("reactionEventCount", -1);
+    }
+
+    @Test
     public void nativeStudentScreenShowsFourReactionsAndSubmitsAQuestionToFirebase()
             throws Exception {
         Client teacher = client(), student = client();

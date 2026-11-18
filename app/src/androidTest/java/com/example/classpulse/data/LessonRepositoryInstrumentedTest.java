@@ -206,41 +206,46 @@ public class LessonRepositoryInstrumentedTest {
         String id = create();
         join(id);
         ok(cb -> repo.startLesson(id, cb));
-        ok(cb -> repo.react(id, UID, Models.UNDERSTANDING, cb));
+        String visit = lesson(id).currentVisitId;
+        assertTrue(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)));
         LessonRow row = db.lessonDao().lesson(id);
         row.questionsOpen = false;
         db.lessonDao().updateLesson(row);
-        assertTrue(failure((LessonRepository.Callback<Void> cb) ->
-                repo.react(id, UID, Models.SPEED, cb)).contains("접수를 마감"));
+        assertTrue(this.<Boolean>failure(cb ->
+                repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)).contains("접수를 마감"));
         assertEquals(1, lesson(id).reactions.size());
         row.questionsOpen = true;
         db.lessonDao().updateLesson(row);
-        ok(cb -> repo.react(id, UID, Models.SPEED, cb));
-        assertEquals(2, lesson(id).reactions.size());
+        assertFalse(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)));
+        assertEquals(0, lesson(id).reactions.size());
         while (lesson(id).currentVisitId != null) ok(cb -> repo.completeTopic(id, cb));
-        failure((LessonRepository.Callback<Void> cb) -> repo.react(id, UID, Models.TERM, cb));
-        assertEquals(2, lesson(id).reactions.size());
+        this.<Boolean>failure(cb -> repo.toggleReaction(id, UID, visit, Models.TERM, cb));
+        assertEquals(0, lesson(id).reactions.size());
     }
 
     @Test
-    public void reactionIsIdempotentPerVisitAndRequiresMembership() {
+    public void reactionTogglesOnlyForTheCurrentVisitAndRequiresMembership() {
         String id = create();
         ok(cb -> repo.startLesson(id, cb));
-        failure((LessonRepository.Callback<Void> cb) ->
-                repo.react(id, UID, Models.UNDERSTANDING, cb));
+        String visit = lesson(id).currentVisitId;
+        this.<Boolean>failure(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb));
         join(id);
-        ok(cb -> repo.react(id, UID, Models.UNDERSTANDING, cb));
-        ok(cb -> repo.react(id, UID, Models.UNDERSTANDING, cb));
-        ok(cb -> repo.react(id, UID, Models.SPEED, cb));
+        assertTrue(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)));
+        assertFalse(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)));
+        assertTrue(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb)));
+        assertTrue(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, visit, Models.SPEED, cb)));
         assertEquals(2, lesson(id).reactions.size());
         String a = lesson(id).currentTopicId;
         ok(cb -> repo.completeTopic(id, cb));
         ok(cb -> repo.revisitTopic(id, a, cb));
-        ok(cb -> repo.react(id, UID, Models.UNDERSTANDING, cb));
-        assertEquals(3, lesson(id).reactions.size());
+        this.<Boolean>failure(cb -> repo.toggleReaction(id, UID, visit, Models.UNDERSTANDING, cb));
+        String revisit = lesson(id).currentVisitId;
+        assertTrue(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, revisit, Models.UNDERSTANDING, cb)));
+        assertFalse(this.<Boolean>success(cb -> repo.toggleReaction(id, UID, revisit, Models.UNDERSTANDING, cb)));
+        assertEquals(2, lesson(id).reactions.size());
         ok(cb -> repo.endLesson(id, cb));
-        failure((LessonRepository.Callback<Void> cb) -> repo.react(id, UID, Models.TERM, cb));
-        assertEquals(3, lesson(id).reactions.size());
+        this.<Boolean>failure(cb -> repo.toggleReaction(id, UID, revisit, Models.SPEED, cb));
+        assertEquals(2, lesson(id).reactions.size());
     }
 
     @Test

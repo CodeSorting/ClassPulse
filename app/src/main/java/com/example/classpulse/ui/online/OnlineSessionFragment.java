@@ -158,7 +158,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                     && !p.optString("currentVisitId").isEmpty()) {
                 boolean accepting = s.optBoolean("questionsOpen", true);
                 ui.section(shell.content, "지금 수업은 어떤가요?", accepting
-                        ? "반응은 교수에게 익명 집계로 전달돼요."
+                        ? "반응은 익명으로 전달돼요. 선택한 반응을 다시 누르면 취소돼요."
                         : "교수님이 질문·반응 접수를 마감했어요. 다시 열리면 참여할 수 있어요.");
                 for (int row = 0; row < 2; row++) {
                     int a = row * 2, b = a + 1;
@@ -169,8 +169,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                             reactionLabel(b, p.optString("currentVisitId")),
                             () -> react(b, progress));
                     View pair = shell.dock.getChildAt(shell.dock.getChildCount() - 1);
-                    pair.findViewById(R.id.left).setEnabled(accepting);
-                    pair.findViewById(R.id.right).setEnabled(accepting);
+                    String visitId = p.optString("currentVisitId");
+                    pair.findViewById(R.id.left).setEnabled(accepting && !reactionPending(a, visitId));
+                    pair.findViewById(R.id.right).setEnabled(accepting && !reactionPending(b, visitId));
                 }
             }
         }
@@ -246,13 +247,29 @@ public final class OnlineSessionFragment extends OnlineFragment {
         ui.button(shell.content, "전송 상태 다시 확인", false, repo::retry);
     }
 
-    private String reactionLabel(int i, String visit) {
-        for (OnlineDatabase.Document d : kind("OWN_REACTION")) {
-            JSONObject r = OnlineJson.object(d.json);
-            if (visit.equals(r.optString("visitId")) && TYPES[i].equals(r.optString("type")))
-                return "✓ " + LABELS[i];
+    private String reactionLabel(int index, String visitId) {
+        OnlineDatabase.Document receipt = reactionReceipt(index, visitId);
+        return receipt != null && !receipt.deleted ? "✓ " + LABELS[index] : LABELS[index];
+    }
+
+    private OnlineDatabase.Document reactionReceipt(int index, String visitId) {
+        for (OnlineDatabase.Document document : docs) {
+            if (!"OWN_REACTION".equals(document.kind)) continue;
+            JSONObject receipt = OnlineJson.object(document.json);
+            if (visitId.equals(receipt.optString("visitId")) && TYPES[index].equals(receipt.optString("type"))) {
+                return document;
+            }
         }
-        return LABELS[i];
+        return null;
+    }
+
+    private boolean reactionPending(int index, String visitId) {
+        String key = OnlineRepository.reactionKey(screen.lessonId, visitId, TYPES[index]);
+        for (OnlineDatabase.Outbox operation : operations) {
+            if (key.equals(operation.entityKey) && !"ACKED".equals(operation.state)
+                    && !"REJECTED".equals(operation.state)) return true;
+        }
+        return false;
     }
 
     private void renderOutline(List<OnlineDatabase.Document> outline,
@@ -343,19 +360,15 @@ public final class OnlineSessionFragment extends OnlineFragment {
             error("진도가 바뀌었어요. 현재 대주제를 다시 확인해 주세요.");
             return;
         }
-        repo.background(
-                "submitReaction",
-                screen.lessonId,
-                OnlineJson.values(
-                        "sessionId",
-                        screen.lessonId,
-                        "topicId",
-                        p.optString("currentTopicId"),
-                        "visitId",
-                        p.optString("currentVisitId"),
-                        "type",
-                        TYPES[index]),
-                callback(v -> render()));
+        String visitId = p.optString("currentVisitId");
+        if (reactionPending(index, visitId)) return;
+        OnlineDatabase.Document receipt = reactionReceipt(index, visitId);
+        boolean selected = receipt == null || receipt.deleted;
+        repo.setReaction(screen.lessonId, p.optString("currentTopicId"), visitId, TYPES[index],
+                selected, receipt == null ? 0 : receipt.revision, callback(v -> {
+                    if (shell != null) shell.dock.announceForAccessibility(
+                            selected ? "익명 반응을 보냈어요." : "반응을 취소했어요.");
+                }));
     }
 
     private void progress(String action, String topic) {

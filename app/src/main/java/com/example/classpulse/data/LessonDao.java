@@ -83,6 +83,9 @@ public interface LessonDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     long insertReaction(ReactionRow row);
 
+    @Query("DELETE FROM reactions WHERE id=:id")
+    int deleteReaction(String id);
+
     @Upsert
     void saveMark(MarkRow row);
 

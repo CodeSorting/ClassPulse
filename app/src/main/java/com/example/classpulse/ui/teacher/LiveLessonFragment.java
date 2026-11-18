@@ -189,7 +189,7 @@ public final class LiveLessonFragment extends BaseFragment {
                 () -> newQuestion(current == null ? null : current.id));
         ui.note(content, "완료된 주제에도 질문할 수 있어요. 반응은 현재 진행 중인 주제에 연결돼요.");
         boolean accepting = lesson.questionsOpen && current != null && lesson.currentVisitId != null;
-        ui.text(dock, accepting ? "익명으로 지금의 이해 상태를 알려요"
+        ui.text(dock, accepting ? "익명 반응을 보내요. 선택한 반응을 다시 누르면 취소돼요."
                 : !lesson.questionsOpen ? "교수님이 질문·반응 접수를 마감했어요."
                 : "모든 대주제를 마쳐 반응 접수가 끝났어요.");
         String[] labels = LABELS.clone();
@@ -228,13 +228,10 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void react(Models.Lesson lesson, String type) {
-        vm.repo.react(
-                lesson.id,
-                vm.userId(),
-                type,
-                callback(v -> {
-                    if (dock != null)
-                        dock.announceForAccessibility("익명 반응을 저장했어요. 선택한 반응에 체크가 표시됩니다.");
+        vm.repo.toggleReaction(lesson.id, vm.userId(), lesson.currentVisitId, type,
+                callback(selected -> {
+                    if (dock != null) dock.announceForAccessibility(
+                            selected ? "익명 반응을 저장했어요." : "반응을 취소했어요.");
                 }));
     }
 
