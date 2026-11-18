@@ -188,16 +188,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
         moreButton("QUESTION", "이전 질문 더 불러오기");
         if (!teacher) {
             for (OnlineDatabase.Draft d : drafts)
-                if ("QUESTION_DRAFT".equals(d.kind) && (!d.closed || "QUEUED".equals(d.state)))
-                    ui.card(
-                            shell.content,
-                            d.text.isEmpty() ? "작성 중인 질문" : d.text,
-                            topicTitle(d.topicId),
-                            d.closed ? "전송 대기 · 접수 확인" : d.dirty ? "기기에 저장 · 전송 대기" : "개인 초안",
-                            () ->
-                                    open(
-                                            "online_question_edit",
-                                            screen.withQuestion(d.id).withTopic(d.topicId)));
+                if (visibleQuestionDraft(d))
+                    questionDraftCard(d, d.closed ? "전송 대기 · 접수 확인"
+                            : d.dirty ? "기기에 저장 · 전송 대기" : "개인 초안");
             for (OnlineDatabase.Draft d : drafts)
                 if ("MARK".equals(d.kind) && !"DELETED".equals(d.state))
                     ui.card(

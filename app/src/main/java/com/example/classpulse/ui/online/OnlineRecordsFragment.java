@@ -112,18 +112,9 @@ public final class OnlineRecordsFragment extends OnlineFragment {
                 ui.heading(shell.content, "작성 중인 질문과 개인 표시", null);
                 int count = 0;
                 for (OnlineDatabase.Draft d : drafts) {
-                    if ("QUESTION_DRAFT".equals(d.kind)
-                            && (!d.closed || "QUEUED".equals(d.state))) {
+                    if (visibleQuestionDraft(d)) {
                         count++;
-                        ui.card(
-                                shell.content,
-                                d.text.isEmpty() ? "작성 중인 질문" : d.text,
-                                topicTitle(d.topicId),
-                                d.closed ? "전송 대기" : d.dirty ? "이 기기에 저장됨" : "개인 초안",
-                                () ->
-                                        open(
-                                                "online_question_edit",
-                                                screen.withQuestion(d.id).withTopic(d.topicId)));
+                        questionDraftCard(d, d.closed ? "전송 대기" : d.dirty ? "이 기기에 저장됨" : "개인 초안");
                     }
                     if ("MARK".equals(d.kind) && !"DELETED".equals(d.state)) {
                         count++;
@@ -141,6 +132,10 @@ public final class OnlineRecordsFragment extends OnlineFragment {
                                                         "질문으로 이어 쓰기",
                                                         (dialog, which) -> {
                                                             String id = OnlineJson.id();
+                                                            if (d.text.trim().isEmpty()) {
+                                                                open("online_question_edit", screen.withQuestion(id).withTopic(d.topicId));
+                                                                return;
+                                                            }
                                                             repo.saveDraft(
                                                                     screen.lessonId,
                                                                     id,

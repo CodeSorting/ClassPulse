@@ -22,7 +22,7 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
     private String value = "", topic = "";
     private boolean built, typed, sealed, setting;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable save = () -> flush(false);
+    private final Runnable save = this::flush;
     private final ActivityResultLauncher<Intent> speech = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null ||
@@ -64,6 +64,7 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
             return;
         }
         OnlineDatabase.Draft d = draft("QUESTION_DRAFT", screen.questionId);
+        if (closeDeletedDraft(d)) return;
         if (d != null && !typed) {
             setting = true;
             value = d.text;
@@ -99,6 +100,7 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
                             : screen.topicId;
         if (topic.isEmpty() || "null".equals(topic)) topic = topics().get(0).id;
         OnlineDatabase.Draft d = draft("QUESTION_DRAFT", screen.questionId);
+        if (closeDeletedDraft(d)) return;
         if (d != null && !typed) {
             value = d.text;
             topic = d.topicId;
@@ -186,7 +188,10 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
                                     }));
                         })
                 .setEnabled(!sealed);
-        ui.button(shell.dock, "개인 초안 저장", false, () -> flush(false)).setEnabled(!sealed);
+        ui.button(shell.dock, "개인 초안 저장", false, () -> {
+            if (input.getText().toString().trim().isEmpty()) error("빈 내용은 저장되지 않아요.");
+            else flush();
+        }).setEnabled(!sealed);
         if (sealed)
             ui.button(
                     shell.content,
@@ -219,16 +224,30 @@ public final class OnlineQuestionEditorFragment extends OnlineFragment {
         }
     }
 
-    private void flush(boolean unused) {
+    private boolean closeDeletedDraft(OnlineDatabase.Draft draft) {
+        if (draft == null || !"DELETED".equals(draft.state)) return false;
+        sealed = true;
+        handler.removeCallbacks(save);
+        clear();
+        input = null;
+        topicLabel = null;
+        status = null;
+        ui.heading(shell.content, "삭제된 질문 초안이에요", null);
+        ui.button(shell.dock, "이전 화면으로", true, () -> host().back());
+        return true;
+    }
+
+    private void flush() {
         if (repo == null || input == null || sealed || topic.isEmpty()) return;
         value = input.getText().toString();
+        if (value.trim().isEmpty()) return;
         repo.saveDraft(screen.lessonId, screen.questionId, topic, value, false, null);
     }
 
     @Override
     public void onPause() {
         handler.removeCallbacks(save);
-        flush(false);
+        flush();
         super.onPause();
     }
 

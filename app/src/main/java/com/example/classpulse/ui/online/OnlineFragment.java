@@ -3,6 +3,7 @@ package com.example.classpulse.ui.online;
 import android.os.Bundle;
 import android.view.*;
 import androidx.annotation.*;
+import androidx.appcompat.widget.PopupMenu;
 import androidx.fragment.app.Fragment;
 import com.example.classpulse.MainActivity;
 import com.example.classpulse.databinding.FragmentShellBinding;
@@ -230,6 +231,41 @@ public abstract class OnlineFragment extends Fragment {
             if (d.kind.equals(kind) && d.id.equals(id) && !d.deleted)
                 return OnlineJson.object(d.json);
         return new JSONObject();
+    }
+
+    protected boolean visibleQuestionDraft(OnlineDatabase.Draft draft) {
+        return "QUESTION_DRAFT".equals(draft.kind) && !draft.text.trim().isEmpty()
+                && (!draft.closed || "QUEUED".equals(draft.state));
+    }
+
+    protected boolean draftDeletionPending(String id) {
+        String key = OnlineRepository.questionDraftKey(screen.lessonId, id);
+        for (OnlineDatabase.Outbox operation : operations) {
+            if (key.equals(operation.entityKey) && "deletePersonalItem".equals(operation.command)
+                    && !"ACKED".equals(operation.state) && !"REJECTED".equals(operation.state)) return true;
+        }
+        return false;
+    }
+
+    protected void questionDraftCard(OnlineDatabase.Draft draft, String badge) {
+        boolean deleting = draftDeletionPending(draft.id);
+        View card = ui.card(shell.content, draft.text, topicTitle(draft.topicId), deleting ? "삭제 대기" : badge,
+                deleting ? null : () -> open("online_question_edit", screen.withQuestion(draft.id).withTopic(draft.topicId)),
+                deleting || draft.closed ? null : anchor -> {
+                    PopupMenu menu = new PopupMenu(requireContext(), anchor);
+                    menu.getMenu().add("초안 삭제").setOnMenuItemClickListener(item -> {
+                        new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle("질문 초안을 삭제할까요?")
+                                .setMessage("작성 중인 내용이 내 질문에서 사라져요.")
+                                .setNegativeButton("취소", null)
+                                .setPositiveButton("삭제", (dialog, which) -> repo.deleteQuestionDraft(
+                                        screen.lessonId, draft.id, callback(v -> {})))
+                                .show();
+                        return true;
+                    });
+                    menu.show();
+                });
+        card.findViewById(com.example.classpulse.R.id.cardMenu).setContentDescription("질문 초안 더보기: " + draft.text);
     }
 
     protected List<OnlineDatabase.Document> topics() {

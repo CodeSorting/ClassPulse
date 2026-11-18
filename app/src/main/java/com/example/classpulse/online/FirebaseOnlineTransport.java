@@ -147,8 +147,8 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
 
     private void watch(
             Query query, String kind, Sink sink, List<ListenerRegistration> registrations) {
-        watch(query, kind, sink, registrations, "OWN_REACTION".equals(kind)
-                ? MetadataChanges.INCLUDE : MetadataChanges.EXCLUDE);
+        boolean personalState = "OWN_REACTION".equals(kind) || "QUESTION_DRAFT".equals(kind);
+        watch(query, kind, sink, registrations, personalState ? MetadataChanges.INCLUDE : MetadataChanges.EXCLUDE);
     }
 
     private void watch(Query query, String kind, Sink sink,

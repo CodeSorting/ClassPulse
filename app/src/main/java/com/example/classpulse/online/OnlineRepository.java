@@ -221,6 +221,15 @@ public final class OnlineRepository implements AutoCloseable {
                     question);
         JSONObject value = result.optJSONObject("document");
         if (value != null) {
+            if ("deletePersonalItem".equals(op.command) && !value.isNull("deletedAt")) {
+                // The server may return a tombstone created by another device. The local
+                // user still confirmed deletion, so this success is not a draft conflict.
+                try {
+                    value.put("lastOperationId", op.operationId);
+                } catch (org.json.JSONException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
             String kind =
                     "saveAnswerDraft".equals(op.command)
                             ? "ANSWER_DRAFT"
@@ -628,6 +637,65 @@ public final class OnlineRepository implements AutoCloseable {
         savePersonal(sid, "QUESTION_DRAFT", id, topicId, value, submit, callback);
     }
 
+    public static String questionDraftKey(String sid, String id) {
+        return "QUESTION_DRAFT:" + sid + ":" + id;
+    }
+
+    public void deleteQuestionDraft(String sid, String id, Callback callback) {
+        local(() -> {
+            if (!active()) return;
+            String key = questionDraftKey(sid, id);
+            final Outbox[] deletion = new Outbox[1];
+            final String[] blocked = new String[1];
+            db.runInTransaction(() -> {
+                Draft draft = store.draft(sid, "QUESTION_DRAFT", id);
+                if (draft == null || "DELETED".equals(draft.state)) return;
+                if (draft.closed) {
+                    blocked[0] = "제출한 질문은 질문 상세에서 제출 상태를 확인해 주세요.";
+                    return;
+                }
+                Outbox current = store.lastForEntity(key);
+                if (current != null && "deletePersonalItem".equals(current.command)) {
+                    deletion[0] = current;
+                    return;
+                }
+                List<Outbox> pending = store.pendingEntity(key);
+                if (store.conflict(sid, "QUESTION_DRAFT", id) != null
+                        || pending.stream().anyMatch(o -> "CONFLICT".equals(o.state))) {
+                    blocked[0] = "다른 기기의 초안과 충돌했어요. 수업 화면에서 사용할 원고를 먼저 선택해 주세요.";
+                    return;
+                }
+                for (Outbox operation : pending) {
+                    if (operation.attempts == 0 && "PENDING".equals(operation.state)
+                            && "savePersonalDraft".equals(operation.command)) {
+                        operation.state = "REJECTED";
+                        operation.errorCode = "SUPERSEDED";
+                        store.operation(operation);
+                    }
+                }
+                if (draft.serverRevision == 0 && store.lastForEntity(key) == null) {
+                    draft.closed = true;
+                    draft.dirty = false;
+                    draft.state = "DELETED";
+                    draft.text = "";
+                    store.draft(draft);
+                    return;
+                }
+                deletion[0] = add("deletePersonalItem", sid, key, OnlineJson.values(
+                        "sessionId", sid, "id", id, "kind", "questionDrafts", "baseRevision", draft.serverRevision),
+                        false, draft.localRevision);
+            });
+            if (blocked[0] != null) {
+                failure(callback, "DRAFT_CLOSED", blocked[0]);
+            } else if (deletion[0] == null) {
+                success(callback, new JSONObject());
+            } else {
+                if (callback != null) callbacks.put(deletion[0].operationId, callback);
+                drainAsync(false);
+            }
+        });
+    }
+
     public void saveMark(String sid, String topicId, String value, Callback callback) {
         savePersonal(sid, "MARK", OnlineJson.id(), topicId, value, false, callback);
     }
@@ -642,6 +710,17 @@ public final class OnlineRepository implements AutoCloseable {
             Callback callback) {
         local(() -> {
             if (!active()) return;
+            if ("QUESTION_DRAFT".equals(kind)) {
+                if (value.trim().isEmpty()) {
+                    if (submit || callback != null) failure(callback, "INVALID_TEXT", "질문 내용을 입력해 주세요.");
+                    return;
+                }
+                Outbox pending = store.lastForEntity(questionDraftKey(sid, id));
+                if (pending != null && "deletePersonalItem".equals(pending.command)) {
+                    failure(callback, "DRAFT_CLOSED", "삭제 중인 초안이에요.");
+                    return;
+                }
+            }
             Draft old = store.draft(sid, kind, id);
             if (old != null && old.closed) {
                 failure(callback, "DRAFT_CLOSED", "이미 전송을 준비한 질문이에요. 새 질문으로 작성해 주세요.");
@@ -806,7 +885,7 @@ public final class OnlineRepository implements AutoCloseable {
                                             "DEADLINE_EXCEEDED",
                                             "INTERNAL")
                                     .contains(f.reason);
-                    boolean conflict = "VERSION_CONFLICT".equals(f.reason);
+                    boolean conflict = "VERSION_CONFLICT".equals(f.reason) && !"deletePersonalItem".equals(o.command);
                     o.state =
                             conflict
                                     ? "CONFLICT"

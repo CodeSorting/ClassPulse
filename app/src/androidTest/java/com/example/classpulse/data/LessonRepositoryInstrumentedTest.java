@@ -249,6 +249,25 @@ public class LessonRepositoryInstrumentedTest {
     }
 
     @Test
+    public void localDraftsRequireTextAndCanBeDeletedWithoutRemovingSubmittedQuestions() {
+        String sid = create();
+        join(sid);
+        String topic = lesson(sid).topics.get(0).id;
+        String draftId = java.util.UUID.randomUUID().toString();
+        this.<String>failure(cb -> repo.saveDraft(draftId, sid, topic, UID, "  \t ", cb));
+        assertNull(db.lessonDao().question(draftId));
+        assertEquals(draftId, this.<String>success(cb -> repo.saveDraft(draftId, sid, topic, UID, "저장할 초안", cb)));
+        this.<String>failure(cb -> repo.saveDraft(draftId, sid, topic, UID, "  ", cb));
+        assertEquals("저장할 초안", lesson(sid).question(draftId).text);
+        ok(cb -> repo.deleteQuestionDraft(sid, draftId, UID, cb));
+        assertNull(lesson(sid).question(draftId));
+        this.<String>failure(cb -> repo.saveDraft(draftId, sid, topic, UID, "늦은 자동 저장", cb));
+        String submitted = success(cb -> repo.submitQuestion(null, sid, topic, UID, "제출한 질문", cb));
+        this.<Void>failure(cb -> repo.deleteQuestionDraft(sid, submitted, UID, cb));
+        assertEquals(Models.SUBMITTED, lesson(sid).question(submitted).status);
+    }
+
+    @Test
     public void onlyUnansweredSubmittedQuestionsCanBeWithdrawnFromTheLocalLesson() {
         String sid = create();
         join(sid);

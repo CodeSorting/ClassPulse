@@ -675,6 +675,30 @@ test("personal drafts stay private; submissions pin topic and reject edits; publ
     });
     assert.equal((await db.doc(`sessions/${f.sid}/analytics/summary`).get()).data().unansweredQuestionCount, 0);
 });
+test("blank question drafts are rejected and deletion is limited to private unsubmitted drafts", async () => {
+    const f = await fixture();
+    await join(student, f);
+    const topicId = f.topics[0].id;
+    const payload = { sessionId: f.sid, topicId, id: op(), text: " \n \t ", baseRevision: 0 };
+    const draft = db.doc(`users/${student}/lessonData/${f.sid}/questionDrafts/${payload.id}`);
+    await expectReason(() => mutate(student, "savePersonalDraft", payload), "INVALID_TEXT");
+    assert.equal((await draft.get()).exists, false);
+    await mutate(student, "saveMark", { ...payload, id: op() });
+    await mutate(student, "savePersonalDraft", { ...payload, text: "이어 쓸 원고" });
+    await expectReason(() => mutate(student, "savePersonalDraft", { ...payload, baseRevision: 1 }), "INVALID_TEXT");
+    assert.equal((await draft.get()).data().text, "이어 쓸 원고");
+    const remove = { sessionId: f.sid, id: payload.id, kind: "questionDrafts", baseRevision: 1 };
+    await expectReason(() => mutate(other, "deletePersonalItem", remove), "NOT_FOUND");
+    const deleted = await mutate(student, "deletePersonalItem", remove);
+    assert.ok(deleted.document.deletedAt);
+    assert.equal(deleted.document.text, "");
+    assert.equal((await mutate(student, "deletePersonalItem", remove)).document.revision, 2);
+    await expectReason(() => mutate(student, "savePersonalDraft", { ...payload, text: "되돌리지 않음", baseRevision: 2 }), "DRAFT_CLOSED");
+    const submitted = { ...payload, id: op(), text: "이미 제출한 질문" };
+    await mutate(student, "submitQuestion", submitted);
+    await expectReason(() => mutate(student, "deletePersonalItem", { ...remove, id: submitted.id }), "DRAFT_CLOSED");
+});
+
 test("closed question intake preserves draft; referenced outline IDs and personal tombstones are protected", async () => {
     const f = await fixture();
     await join(student, f);

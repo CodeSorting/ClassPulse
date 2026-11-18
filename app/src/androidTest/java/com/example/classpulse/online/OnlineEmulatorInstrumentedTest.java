@@ -611,6 +611,55 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void backingOutOfBlankQuestionLeavesNoDraftAndSavedDraftCanBeDeleted() throws Exception {
+        Client teacher = client(), student = client();
+        String sid = create(teacher).optString("sid");
+        join(teacher, student, sid);
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        showSession(student, sid);
+        String entry = "이 대주제에 질문하기";
+        onView(withText(entry)).perform(scrollTo(), click());
+        await(() -> hasText("질문 제출"));
+        String emptyId = currentQuestionId();
+        onView(withId(R.id.back_button)).perform(click());
+
+        onView(withText(entry)).perform(scrollTo(), click());
+        await(() -> hasText("질문 제출"));
+        String savedId = currentQuestionId();
+        assertNotEquals(emptyId, savedId);
+        String text = "자동 저장하고 삭제할 초안";
+        onView(withContentDescription("질문 내용 · 1,000자 이내"))
+                .perform(scrollTo(), replaceText(text), closeSoftKeyboard());
+        onView(withId(R.id.back_button)).perform(click());
+        await(() -> {
+            OnlineDatabase.Draft row = student.db.store().draft(sid, "QUESTION_DRAFT", savedId);
+            return row != null && !row.dirty && row.serverRevision > 0;
+        });
+        assertNull(student.db.store().draft(sid, "QUESTION_DRAFT", emptyId));
+        CollectionReference drafts = student.firestore.collection("users/" + student.uid
+                + "/lessonData/" + sid + "/questionDrafts");
+        assertFalse(Tasks.await(drafts.document(emptyId).get(Source.SERVER), 10, TimeUnit.SECONDS).exists());
+
+        onView(withContentDescription("질문 초안 더보기: " + text)).perform(scrollTo(), click());
+        onView(withText("초안 삭제")).perform(click());
+        onView(withText("삭제")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+        await(() -> "DELETED".equals(student.db.store().draft(sid, "QUESTION_DRAFT", savedId).state));
+        onView(withText(text)).check(doesNotExist());
+        DocumentSnapshot deleted = Tasks.await(drafts.document(savedId).get(Source.SERVER), 10, TimeUnit.SECONDS);
+        assertNotNull(deleted.getTimestamp("deletedAt"));
+        assertEquals("", deleted.getString("text"));
+    }
+
+    private String currentQuestionId() {
+        AtomicReference<String> result = new AtomicReference<>();
+        scenario.onActivity(activity -> result.set(ScreenContext.from(activity.getSupportFragmentManager()
+                .findFragmentById(R.id.main).getArguments()).questionId));
+        assertFalse(result.get().isEmpty());
+        return result.get();
+    }
+
+    @Test
     public void studentWithdrawsSubmittedQuestionAndTeacherCacheRemovesIt() throws Exception {
         Client teacher = client(), student = client();
         JSONObject fixture = create(teacher);

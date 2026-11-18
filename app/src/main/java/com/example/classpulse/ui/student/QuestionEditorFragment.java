@@ -38,7 +38,6 @@ public class QuestionEditorFragment extends BaseFragment {
             writing,
             submittingRequest,
             submitted,
-            draftExists,
             explicitQueued,
             submitQueued,
             navigateQueued,
@@ -122,7 +121,6 @@ public class QuestionEditorFragment extends BaseFragment {
                     false,
                     () -> {
                         draftId = UUID.randomUUID().toString();
-                        draftExists = false;
                         submitted = false;
                         buffer = "";
                         savedText = savedTopic = "";
@@ -134,7 +132,6 @@ public class QuestionEditorFragment extends BaseFragment {
         if (existing != null
                 && StudentSupport.draft(existing)
                 && vm.userId().equals(existing.studentId)) {
-            draftExists = true;
             if (draftId == null) {
                 draftId = existing.id;
                 if (buffer.isEmpty()) buffer = StudentSupport.safe(existing.text);
@@ -233,11 +230,10 @@ public class QuestionEditorFragment extends BaseFragment {
         capture();
         if (submitted || topicId == null || editorSessionId == null || editorStudentId == null)
             return;
-        if (submit && buffer.trim().isEmpty()) {
-            showError("궁금한 내용을 입력해 주세요.");
+        if (buffer.trim().isEmpty()) {
+            if (navigate || submit) showError("궁금한 내용을 입력해 주세요.");
             return;
         }
-        if (!submit && buffer.trim().isEmpty() && !draftExists) return;
         if (writing) {
             if (navigate || submit) {
                 explicitQueued = true;
@@ -263,7 +259,6 @@ public class QuestionEditorFragment extends BaseFragment {
                         writing = false;
                         submittingRequest = false;
                         draftId = id;
-                        draftExists = true;
                         savedText = requestText;
                         savedTopic = requestTopic;
                         submitted = submit;

@@ -522,7 +522,7 @@ public final class LessonRepository {
                     if (submit && !l.questionsOpen)
                         throw new IllegalStateException("이 수업의 질문 접수가 마감됐어요.");
                     String value = clean(text);
-                    if (submit && value.isEmpty())
+                    if (value.isEmpty())
                         throw new IllegalArgumentException("질문 내용을 입력해 주세요.");
                     if (value.length() > 1000)
                         throw new IllegalArgumentException("질문은 1,000자까지 입력할 수 있어요.");
@@ -559,6 +559,23 @@ public final class LessonRepository {
                     return q.id;
                 },
                 cb);
+    }
+
+    public void deleteQuestionDraft(String sessionId, String questionId, String uid, Callback<Void> cb) {
+        execute(() -> {
+            requireMember(sessionId, uid);
+            QuestionRow question = dao.question(questionId);
+            if (question == null || !sessionId.equals(question.sessionId) || !uid.equals(question.studentId))
+                throw new IllegalStateException("내가 작성 중인 초안만 삭제할 수 있어요.");
+            if (Models.WITHDRAWN.equals(question.status)) return null;
+            if (!Models.DRAFT.equals(question.status))
+                throw new IllegalStateException("이미 제출한 질문이에요.");
+            question.status = Models.WITHDRAWN;
+            question.text = "";
+            question.updatedAt = System.currentTimeMillis();
+            dao.saveQuestion(question);
+            return null;
+        }, cb);
     }
 
     public void withdrawQuestion(String sessionId, String questionId, String uid, Callback<Void> cb) {
@@ -985,7 +1002,7 @@ public final class LessonRepository {
                 l.members.add(x);
             }
             for (QuestionRow r : g.questions) {
-                if (Models.WITHDRAWN.equals(r.status)) continue;
+                if (Models.WITHDRAWN.equals(r.status) || Models.DRAFT.equals(r.status) && r.text.trim().isEmpty()) continue;
                 Models.Question x = new Models.Question();
                 x.id = r.id;
                 x.sessionId = r.sessionId;

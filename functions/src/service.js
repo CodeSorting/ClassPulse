@@ -617,7 +617,7 @@ function createService(db, {
     async function savePersonal(uid, p, kind) {
         const key = id(p.id),
             topicId = id(p.topicId),
-            value = text(p.text || "", kind === "marks" ? 200 : 1000, false);
+            value = text(p.text || "", kind === "marks" ? 200 : 1000, kind === "questionDrafts");
         return command(uid, kind === "marks" ? "saveMark" : "savePersonalDraft", p, async (tx, now) => {
             const {
                 ref,
@@ -654,9 +654,15 @@ function createService(db, {
                 snap = await tx.get(target),
                 old = snap.data();
             if (!old) fail("NOT_FOUND", "기록을 찾지 못했어요.", "not-found");
+            if (p.kind === "questionDrafts" && old.submittedQuestionId) {
+                fail("DRAFT_CLOSED", "이미 제출한 질문이에요. 질문 상세에서 제출 상태를 확인해 주세요.");
+            }
+            if (old.deletedAt) return { id: p.id, kind: p.kind, document: old };
             if (old.revision !== integer(p.baseRevision)) fail("VERSION_CONFLICT", "다른 기기에서 기록이 바뀌었어요.");
             const v = bump(old, now, {
-                deletedAt: now
+                deletedAt: now,
+                lastOperationId: p.operationId,
+                ...(p.kind === "questionDrafts" ? { text: "" } : {})
             });
             tx.set(target, v);
             return {
