@@ -533,6 +533,8 @@ public final class LessonRepository {
                     if (q != null) {
                         if (!q.studentId.equals(uid) || !q.sessionId.equals(l.id))
                             throw new IllegalStateException("이 질문을 수정할 수 없어요.");
+                        if (Models.WITHDRAWN.equals(q.status))
+                            throw new IllegalStateException("이미 제출을 취소한 질문이에요. 새 질문을 작성해 주세요.");
                         if (!Models.DRAFT.equals(q.status)) {
                             if (q.topicId.equals(topicId) && q.text.equals(value) && submit)
                                 return q.id;
@@ -557,6 +559,23 @@ public final class LessonRepository {
                     return q.id;
                 },
                 cb);
+    }
+
+    public void withdrawQuestion(String sessionId, String questionId, String uid, Callback<Void> cb) {
+        execute(() -> {
+            requireMember(sessionId, uid);
+            QuestionRow question = dao.question(questionId);
+            if (question == null || !sessionId.equals(question.sessionId) || !uid.equals(question.studentId))
+                throw new IllegalStateException("내가 제출한 질문만 취소할 수 있어요.");
+            if (Models.WITHDRAWN.equals(question.status)) return null;
+            if (!Models.SUBMITTED.equals(question.status) || question.published || question.answerVersion != 0)
+                throw new IllegalStateException("답변을 기다리는 제출 질문만 취소할 수 있어요.");
+            question.status = Models.WITHDRAWN;
+            question.text = "";
+            question.updatedAt = System.currentTimeMillis();
+            dao.saveQuestion(question);
+            return null;
+        }, cb);
     }
 
     public void saveMark(
@@ -617,7 +636,7 @@ public final class LessonRepository {
         execute(
                 () -> {
                     QuestionRow q = dao.question(questionId);
-                    if (q == null || Models.DRAFT.equals(q.status))
+                    if (q == null || !(Models.SUBMITTED.equals(q.status) || Models.ANSWERED.equals(q.status)))
                         throw new IllegalStateException("접수된 질문을 선택해 주세요.");
                     String value = clean(answer);
                     if (publish && value.isEmpty())
@@ -966,6 +985,7 @@ public final class LessonRepository {
                 l.members.add(x);
             }
             for (QuestionRow r : g.questions) {
+                if (Models.WITHDRAWN.equals(r.status)) continue;
                 Models.Question x = new Models.Question();
                 x.id = r.id;
                 x.sessionId = r.sessionId;

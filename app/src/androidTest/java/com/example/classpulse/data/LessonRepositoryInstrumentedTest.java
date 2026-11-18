@@ -249,6 +249,25 @@ public class LessonRepositoryInstrumentedTest {
     }
 
     @Test
+    public void onlyUnansweredSubmittedQuestionsCanBeWithdrawnFromTheLocalLesson() {
+        String sid = create();
+        join(sid);
+        String topic = lesson(sid).topics.get(0).id;
+        String question = success(cb -> repo.submitQuestion(null, sid, topic, UID, "취소할 질문", cb));
+        ok(cb -> repo.withdrawQuestion(sid, question, UID, cb));
+        ok(cb -> repo.withdrawQuestion(sid, question, UID, cb));
+        assertNull(lesson(sid).question(question));
+        assertTrue(this.<String>failure(cb ->
+                repo.submitQuestion(question, sid, topic, UID, "취소할 질문", cb)).contains("취소"));
+        this.<Void>failure(cb -> repo.saveAnswer(question, "늦은 답변", true, cb));
+
+        String answered = success(cb -> repo.submitQuestion(null, sid, topic, UID, "남길 질문", cb));
+        ok(cb -> repo.saveAnswer(answered, "공개 답변", true, cb));
+        this.<Void>failure(cb -> repo.withdrawQuestion(sid, answered, UID, cb));
+        assertEquals(Models.ANSWERED, lesson(sid).question(answered).status);
+    }
+
+    @Test
     public void clientDraftIdAndPublishedAnswersAreNotOverwrittenByPrivateDrafts() {
         String id = create();
         join(id);

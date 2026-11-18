@@ -532,17 +532,26 @@ public class OnlineEmulatorInstrumentedTest {
         showSession(student, sid);
 
         String label = "용어가 어려워요", selected = "✓ " + label;
-        await(() -> hasText(label));
+        await(() -> teacherReactionCount(teacher, sid) == 0 && hasEnabledReaction(label));
         onView(withText(label)).perform(click());
-        await(() -> hasText(selected) && teacherReactionCount(teacher, sid) == 1);
+        await(() -> teacherReactionCount(teacher, sid) == 1 && hasEnabledReaction(selected));
         onView(withText(selected)).perform(click());
-        await(() -> hasText(label) && teacherReactionCount(teacher, sid) == 0);
+        await(() -> teacherReactionCount(teacher, sid) == 0 && hasEnabledReaction(label));
         onView(withText(selected)).check(doesNotExist());
         scenario.recreate();
-        await(() -> hasText(label));
+        await(() -> hasEnabledReaction(label));
         onView(withText(selected)).check(doesNotExist());
         onView(withText(label)).perform(click());
-        await(() -> hasText(selected) && teacherReactionCount(teacher, sid) == 1);
+        await(() -> teacherReactionCount(teacher, sid) == 1 && hasEnabledReaction(selected));
+    }
+
+    private boolean hasEnabledReaction(String label) {
+        try {
+            onView(withText(label)).check(matches(org.hamcrest.Matchers.allOf(isDisplayed(), isEnabled())));
+            return true;
+        } catch (androidx.test.espresso.NoMatchingViewException | AssertionError error) {
+            return false;
+        }
     }
 
     private int teacherReactionCount(Client teacher, String sid) {
@@ -599,6 +608,34 @@ public class OnlineEmulatorInstrumentedTest {
                                         TimeUnit.SECONDS)
                                 .size()
                         == 1);
+    }
+
+    @Test
+    public void studentWithdrawsSubmittedQuestionAndTeacherCacheRemovesIt() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid"), topic = fixture.optString("first"), question = OnlineJson.id();
+        join(teacher, student, sid);
+        watchers.add(teacher.repo.watchLesson(sid));
+        String label = "제출을 취소할 질문";
+        mutate(student, "submitQuestion", OnlineJson.values("sessionId", sid, "topicId", topic,
+                "id", question, "text", label, "baseRevision", 0));
+        showSession(student, sid);
+        await(() -> student.db.store().document(sid, "QUESTION", question) != null
+                && teacher.db.store().document(sid, "QUESTION", question) != null);
+        onView(withText(label)).perform(scrollTo(), click());
+        await(() -> hasText("제출 취소"));
+        onView(withText("제출 취소")).perform(click());
+        onView(withText("계속 두기")).perform(click());
+        onView(withText(label)).check(matches(isDisplayed()));
+        onView(withText("제출 취소")).perform(click());
+        onView(withText("제출 취소")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+        await(() -> hasText("제출이 취소된 질문이에요")
+                && teacher.db.store().document(sid, "QUESTION", question).deleted);
+        onView(withText("이전 화면으로")).perform(click());
+        await(() -> hasText("내 질문"));
+        onView(withText(label)).check(doesNotExist());
+        assertTrue(student.db.store().document(sid, "QUESTION", question).deleted);
     }
 
     @Test

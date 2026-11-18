@@ -512,6 +512,11 @@ public final class OnlineRepository implements AutoCloseable {
                 "selected", selected, "baseRevision", baseRevision), false, true, callback);
     }
 
+    public void withdrawQuestion(String sid, String questionId, Callback callback) {
+        enqueue("withdrawQuestion", sid, "withdrawQuestion:" + sid + ":" + questionId,
+                OnlineJson.values("sessionId", sid, "id", questionId), true, true, callback);
+    }
+
     private void enqueue(
             String command, String sid, JSONObject payload, boolean foreground, Callback callback) {
         enqueue(command, sid, command + ":" + sid, payload, foreground, false, callback);
@@ -524,8 +529,9 @@ public final class OnlineRepository implements AutoCloseable {
             final Outbox[] created = new Outbox[1];
             db.runInTransaction(() -> {
                 Outbox previous = store.lastForEntity(key);
-                if (singlePending && previous != null) return;
-                if (previous != null && "NEEDS_CONFIRMATION".equals(previous.state)) {
+                boolean needsConfirmation = previous != null && "NEEDS_CONFIRMATION".equals(previous.state);
+                if (singlePending && previous != null && !needsConfirmation) return;
+                if (needsConfirmation) {
                     previous.state = "REJECTED";
                     previous.errorCode = "USER_RECONFIRMED";
                     store.operation(previous);

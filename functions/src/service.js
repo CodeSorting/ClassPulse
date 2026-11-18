@@ -681,6 +681,7 @@ function createService(db, {
                 existing = await tx.get(qref);
             if (existing.exists) {
                 const q = existing.data();
+                if (q.authorUid === uid && q.deletedAt) fail("QUESTION_WITHDRAWN", "이미 제출을 취소한 질문이에요. 새 질문을 작성해 주세요.");
                 if (q.authorUid !== uid || q.text !== value || q.topicId !== topicId) fail("QUESTION_LOCKED", "접수된 질문의 내용과 주제는 바꿀 수 없어요.");
                 return {
                     id: qid,
@@ -733,6 +734,29 @@ function createService(db, {
                     ...q
                 }
             };
+        });
+    }
+    async function withdrawQuestion(uid, p) {
+        const qid = id(p.id);
+        return command(uid, "withdrawQuestion", p, async (tx, now) => {
+            const { ref } = await access(tx, p.sessionId, uid);
+            const questionRef = ref.collection("questions").doc(qid);
+            const question = (await tx.get(questionRef)).data();
+            if (!question) fail("NOT_FOUND", "접수된 질문을 찾지 못했어요.", "not-found");
+            if (question.authorUid !== uid) {
+                fail("QUESTION_AUTHOR_REQUIRED", "내가 제출한 질문만 취소할 수 있어요.", "permission-denied");
+            }
+            if (question.deletedAt) return { id: qid, question: { ...question, id: qid } };
+            if (question.status !== "SUBMITTED" || question.answerVersion !== 0) {
+                fail("QUESTION_ANSWERED", "답변이 공개된 질문은 제출을 취소할 수 없어요.");
+            }
+            const stats = await statsForQuestions(tx, ref, question.topicId, now, -1, -1);
+            const withdrawn = bump(question, now, { status: "WITHDRAWN", text: "", deletedAt: now });
+            // Keep a revisioned cancellation for other devices, outside the paginated list.
+            delete withdrawn.submittedAt;
+            tx.set(questionRef, withdrawn);
+            for (const item of stats) tx.update(item.ref, item.value);
+            return { id: qid, question: { ...withdrawn, id: qid } };
         });
     }
     function submitReaction(uid, p) {
@@ -893,6 +917,7 @@ function createService(db, {
         saveMark: (u, p) => savePersonal(u, p, "marks"),
         deletePersonalItem: deletePersonal,
         submitQuestion,
+        withdrawQuestion,
         submitReaction,
         setReaction,
         saveAnswerDraft: (u, p) => answer(u, p, false),

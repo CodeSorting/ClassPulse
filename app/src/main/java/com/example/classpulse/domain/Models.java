@@ -8,7 +8,8 @@ public final class Models {
     public static final String TEACHER_ID = "demo-teacher";
     public static final String STUDENT_ID = "demo-student";
     public static final String READY = "READY", LIVE = "LIVE", ENDED = "ENDED";
-    public static final String DRAFT = "DRAFT", SUBMITTED = "SUBMITTED", ANSWERED = "ANSWERED";
+    public static final String DRAFT = "DRAFT", SUBMITTED = "SUBMITTED", ANSWERED = "ANSWERED",
+            WITHDRAWN = "WITHDRAWN";
     public static final String DEMO_CURRENT_LESSON_ID = "demo-session-current";
     public static final String DEMO_REVIEW_LESSON_ID = "demo-session-review";
     public static final String UNDERSTANDING = "UNDERSTANDING",

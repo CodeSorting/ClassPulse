@@ -135,7 +135,7 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                             out.completeExceptionally(failure(task.getException()));
                             return;
                         }
-                        if (!task.getResult().exists()) {
+                        if (!task.getResult().exists() || task.getResult().get(time) == null) {
                             out.completeExceptionally(
                                     new Failure("CURSOR_CHANGED", "목록을 새로 확인해 주세요."));
                             return;
@@ -147,9 +147,14 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
 
     private void watch(
             Query query, String kind, Sink sink, List<ListenerRegistration> registrations) {
+        watch(query, kind, sink, registrations, "OWN_REACTION".equals(kind)
+                ? MetadataChanges.INCLUDE : MetadataChanges.EXCLUDE);
+    }
+
+    private void watch(Query query, String kind, Sink sink,
+                       List<ListenerRegistration> registrations, MetadataChanges metadataChanges) {
         registrations.add(
-                query.addSnapshotListener("OWN_REACTION".equals(kind)
-                        ? MetadataChanges.INCLUDE : MetadataChanges.EXCLUDE, (snapshot, error) -> {
+                query.addSnapshotListener(metadataChanges, (snapshot, error) -> {
                     if (error != null) {
                         Failure f = failure(error);
                         sink.error(f.reason, f.getMessage());
@@ -229,6 +234,8 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
                 "QUESTION",
                 sink,
                 all);
+        // Older cached questions can be withdrawn after they leave the first page.
+        watch(questions.whereEqualTo("status", "WITHDRAWN"), "QUESTION", sink, all, MetadataChanges.INCLUDE);
         watch(
                 db.collection(base + "/publicQna")
                         .orderBy("publishedAt", Query.Direction.DESCENDING)

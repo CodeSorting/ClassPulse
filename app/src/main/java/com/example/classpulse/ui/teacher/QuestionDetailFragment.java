@@ -143,8 +143,42 @@ public final class QuestionDetailFragment extends BaseFragment {
                                 "question_edit",
                                 screen().withQuestion("").withTopic(question.topicId));
                     });
+            if (own && Models.SUBMITTED.equals(question.status) && !publicAnswer) {
+                ui.button(dock, "제출 취소", false, () -> confirmWithdrawal(lesson, question))
+                        .setEnabled(!pending);
+            }
             ui.button(dock, "내 기록으로", false, () -> navigate("records"));
         }
+    }
+
+    private void confirmWithdrawal(Models.Lesson lesson, Models.Question question) {
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("질문 제출을 취소할까요?")
+                .setMessage("취소하면 내 질문과 교수님의 접수 목록에서 사라져요.")
+                .setNegativeButton("계속 두기", null)
+                .setPositiveButton("제출 취소", (dialog, which) -> {
+                    if (pending || !isScreenActive()) return;
+                    pending = true;
+                    long generation = viewGeneration();
+                    render();
+                    vm.repo.withdrawQuestion(lesson.id, question.id, vm.userId(), new LessonRepository.Callback<Void>() {
+                        @Override public void onSuccess(Void ignored) {
+                            pending = false;
+                            if (isCurrentView(generation)) {
+                                Toast.makeText(requireContext(), "질문 제출을 취소했어요.", Toast.LENGTH_SHORT).show();
+                                host().back();
+                            }
+                        }
+
+                        @Override public void onError(String message) {
+                            pending = false;
+                            if (isCurrentView(generation)) {
+                                showError(message);
+                                render();
+                            }
+                        }
+                    });
+                }).show();
     }
 
     private void save(Models.Question question, boolean publish) {

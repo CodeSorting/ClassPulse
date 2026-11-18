@@ -547,6 +547,73 @@ test("closing question intake also rejects delayed reactions; reopening accepts 
     assert.equal((await db.doc(`sessions/${f.sid}/analytics/summary`).get()).data().reactionEventCount, 2);
 });
 
+test("only the author can withdraw an unanswered question and the cancellation is counted once", async () => {
+    const f = await fixture();
+    const inv = await invite(f);
+    await join(student, f, inv);
+    await join(other, f, inv);
+    const topicId = f.topics[0].id;
+    const payload = { sessionId: f.sid, topicId, id: op(), text: "취소할 질문", baseRevision: 0 };
+    const submitted = { ...payload, operationId: op() };
+    await invoke(student, "submitQuestion", submitted);
+    await mutate(other, "submitQuestion", { ...payload, id: op(), text: "다른 학생의 질문" });
+    const request = { sessionId: f.sid, id: payload.id, operationId: op() };
+    for (const uid of [owner, other]) {
+        await expectReason(() => invoke(uid, "withdrawQuestion", request), "QUESTION_AUTHOR_REQUIRED");
+    }
+    const session = await invoke(owner, "getSessionBootstrap", { sessionId: f.sid });
+    await mutate(owner, "setQuestionsOpen", { sessionId: f.sid, baseRevision: session.session.revision, open: false });
+    const withdrawn = await invoke(student, "withdrawQuestion", request);
+    assert.equal(withdrawn.question.status, "WITHDRAWN");
+    assert.ok(withdrawn.question.deletedAt);
+    assert.equal(withdrawn.question.revision, 2);
+    assert.equal(withdrawn.question.text, "");
+    assert.deepEqual(await invoke(student, "withdrawQuestion", request), withdrawn);
+    assert.deepEqual(await invoke(student, "withdrawQuestion", { ...request, operationId: op() }), withdrawn);
+    await invoke(student, "submitQuestion", submitted); // Retry a previously acknowledged request.
+    await expectReason(() => mutate(student, "submitQuestion", payload), "QUESTION_WITHDRAWN");
+    await expectReason(() => mutate(owner, "publishAnswer", {
+        sessionId: f.sid, id: payload.id, text: "늦은 답변", baseRevision: 0, baseAnswerVersion: 0
+    }), "NOT_FOUND");
+    for (const key of ["summary", `topic_${topicId}`]) {
+        const stats = (await db.doc(`sessions/${f.sid}/analytics/${key}`).get()).data();
+        assert.equal(stats.submittedQuestionCount, 1);
+        assert.equal(stats.unansweredQuestionCount, 1);
+    }
+    const teacherQuestions = collection(env.authenticatedContext(owner).firestore(), "sessions", f.sid, "questions");
+    assert.equal((await getDocs(query(teacherQuestions, orderBy("submittedAt", "desc")))).size, 1);
+    const studentQuestions = collection(env.authenticatedContext(student).firestore(), "sessions", f.sid, "questions");
+    assert.equal((await assertSucceeds(getDocs(query(studentQuestions,
+        where("authorUid", "==", student), where("status", "==", "WITHDRAWN"))))).size, 1);
+    await assertFails(getDocs(query(studentQuestions, where("status", "==", "WITHDRAWN"))));
+});
+
+test("publishing an answer and withdrawing a submission cannot both win", async () => {
+    const f = await fixture();
+    await join(student, f);
+    const payload = { sessionId: f.sid, id: op(), topicId: f.topics[0].id, text: "답변 공개 확인", baseRevision: 0 };
+    const answer = { sessionId: f.sid, id: payload.id, text: "답변", baseRevision: 0, baseAnswerVersion: 0 };
+    const request = { sessionId: f.sid, id: payload.id };
+    await mutate(student, "submitQuestion", payload);
+    const [publish, withdraw] = await Promise.allSettled([
+        mutate(owner, "publishAnswer", answer), mutate(student, "withdrawQuestion", request)
+    ]);
+    assert.notEqual(publish.status, withdraw.status);
+    const counted = (await db.doc(`sessions/${f.sid}/analytics/summary`).get()).data();
+    assert.equal(counted.unansweredQuestionCount, 0);
+    if (publish.status === "fulfilled") {
+        assert.equal(withdraw.reason.reason, "QUESTION_ANSWERED");
+        assert.equal(counted.submittedQuestionCount, 1);
+    } else {
+        assert.equal(publish.reason.reason, "NOT_FOUND");
+        assert.equal(counted.submittedQuestionCount, 0);
+    }
+    const alreadyAnswered = op();
+    await mutate(student, "submitQuestion", { ...payload, id: alreadyAnswered });
+    await mutate(owner, "publishAnswer", { ...answer, id: alreadyAnswered });
+    await expectReason(() => mutate(student, "withdrawQuestion", { ...request, id: alreadyAnswered }), "QUESTION_ANSWERED");
+});
+
 test("personal drafts stay private; submissions pin topic and reject edits; publish has no author fields", async () => {
     const f = await fixture();
     await join(student, f);

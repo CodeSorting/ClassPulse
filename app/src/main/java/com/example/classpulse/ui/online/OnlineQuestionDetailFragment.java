@@ -2,16 +2,20 @@ package com.example.classpulse.ui.online;
 
 import android.os.*;
 import android.text.*;
+import android.view.View;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import com.example.classpulse.online.*;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
 
 public final class OnlineQuestionDetailFragment extends OnlineFragment {
     private EditText input;
     private TextView publicAnswer, status;
     private String text = "";
-    private boolean built, typed, setting, busy;
+    private boolean built, typed, setting, busy, withdrawing;
+    private MaterialButton withdrawButton;
     private long baseRevision, baseAnswerVersion;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable saveLocal = this::flush;
@@ -34,12 +38,14 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
 
     @Override
     protected void changed() {
+        if (shell == null || showWithdrawn()) return;
         if (built && lesson().optString("id").isEmpty()) {
             built = false;
             clear();
             input = null;
             publicAnswer = null;
             status = null;
+            withdrawButton = null;
             ui.note(shell.content, "수업 접근 권한을 확인해 주세요.");
             return;
         }
@@ -48,6 +54,7 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
             return;
         }
         JSONObject q = item("QUESTION", screen.questionId);
+        updateWithdrawButton(q);
         if (publicAnswer != null)
             publicAnswer.setText(
                     q.optString("answer").isEmpty() ? "아직 공개된 답변이 없어요." : q.optString("answer"));
@@ -68,7 +75,7 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
 
     @Override
     protected void render() {
-        if (shell == null || repo == null || built) return;
+        if (shell == null || repo == null || showWithdrawn() || built) return;
         JSONObject q = item("QUESTION", screen.questionId);
         if (!draftsLoaded || q.optString("id").isEmpty() && q.optString("text").isEmpty()) {
             clear();
@@ -114,7 +121,81 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
             status = ui.note(shell.content, "원고 저장과 답변 공개는 별개예요.");
             ui.button(shell.dock, "교수 초안 서버 저장", false, () -> send(false));
             ui.button(shell.dock, "답변 공개", true, () -> send(true));
+        } else if (canWithdraw(q)) {
+            withdrawButton = ui.button(shell.dock, "제출 취소", false, this::confirmWithdrawal);
+            updateWithdrawButton(q);
         }
+    }
+
+    private boolean canWithdraw(JSONObject question) {
+        return repo != null && repo.uid.equals(question.optString("authorUid"))
+                && "SUBMITTED".equals(question.optString("status")) && question.optLong("answerVersion") == 0;
+    }
+
+    private boolean withdrawalPending() {
+        for (OnlineDatabase.Outbox operation : operations) {
+            if (!"withdrawQuestion".equals(operation.command) || !screen.lessonId.equals(operation.sessionId)) continue;
+            if (screen.questionId.equals(OnlineJson.object(operation.payload).optString("id"))
+                    && ("PENDING".equals(operation.state) || "SENDING".equals(operation.state))) return true;
+        }
+        return false;
+    }
+
+    private void updateWithdrawButton(JSONObject question) {
+        if (withdrawButton == null) return;
+        withdrawButton.setVisibility(canWithdraw(question) ? View.VISIBLE : View.GONE);
+        boolean pending = withdrawing || withdrawalPending();
+        withdrawButton.setEnabled(!pending);
+        withdrawButton.setText(pending ? "제출 취소 중…" : "제출 취소");
+    }
+
+    private void confirmWithdrawal() {
+        if (withdrawing || withdrawalPending() || !canWithdraw(item("QUESTION", screen.questionId))) return;
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("질문 제출을 취소할까요?")
+                .setMessage("취소하면 내 질문과 교수님의 접수 목록에서 사라져요.")
+                .setNegativeButton("계속 두기", null)
+                .setPositiveButton("제출 취소", (dialog, which) -> withdraw())
+                .show();
+    }
+
+    private void withdraw() {
+        long token = viewToken();
+        JSONObject question = item("QUESTION", screen.questionId);
+        if (!current(token) || withdrawing || withdrawalPending() || !canWithdraw(question)) return;
+        withdrawing = true;
+        updateWithdrawButton(question);
+        repo.withdrawQuestion(screen.lessonId, screen.questionId, new OnlineRepository.Callback() {
+            @Override public void success(JSONObject result) {
+                withdrawing = false;
+                if (current(token)) changed();
+            }
+
+            @Override public void error(String reason, String message) {
+                withdrawing = false;
+                if (current(token)) {
+                    changed();
+                    OnlineQuestionDetailFragment.this.error(message);
+                }
+            }
+        });
+    }
+
+    private boolean showWithdrawn() {
+        for (OnlineDatabase.Document document : docs) {
+            if (!"QUESTION".equals(document.kind) || !screen.questionId.equals(document.id) || !document.deleted) continue;
+            handler.removeCallbacks(saveLocal);
+            input = null;
+            status = null;
+            publicAnswer = null;
+            withdrawButton = null;
+            built = false;
+            clear();
+            ui.heading(shell.content, "제출이 취소된 질문이에요", null);
+            ui.button(shell.dock, "이전 화면으로", true, () -> host().back());
+            return true;
+        }
+        return false;
     }
 
     private void flush() {
@@ -194,6 +275,8 @@ public final class OnlineQuestionDetailFragment extends OnlineFragment {
         status = null;
         built = false;
         busy = false;
+        withdrawing = false;
+        withdrawButton = null;
         super.onDestroyView();
     }
 }
