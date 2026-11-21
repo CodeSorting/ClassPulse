@@ -48,7 +48,7 @@ function transcriptParts(result, visits, startedAt) {
 function createLearningService({ db, access, command, clock, id, text, integer, hash, fail, providers }) {
     const lectureDraft = ref => ref.collection("materialDrafts").doc("lecture");
     const lectureHead = ref => ref.collection("materialHead").doc("lecture");
-    const jobRef = ref => ref.collection("processingJobs").doc("lecture");
+    const jobRef = (ref, recordingId = "lecture") => ref.collection("processingJobs").doc(recordingId);
     const fields = snapshot => ({ ...snapshot.data(), id: snapshot.id });
     const all = async (tx, query) => (await tx.get(query)).docs.map(fields);
     const checked = (uid, payload, ownerOnly, action) => db.runTransaction(async tx =>
@@ -97,34 +97,52 @@ function createLearningService({ db, access, command, clock, id, text, integer, 
                 : null;
             const parts = partQuery ? await all(tx, partQuery) : [];
             const notes = await all(tx, ref.collection(owner ? "learningNoteDrafts" : "learningNotes"));
-            const job = owner ? (await tx.get(jobRef(ref))).data() || null : null;
-            return { material: material || null, parts, notes, job, published: published || null };
+            const jobs = owner ? await all(tx, ref.collection("processingJobs")) : [];
+            jobs.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0) || a.id.localeCompare(b.id));
+            // Retain the single-job field for older installed clients.
+            const job = jobs.find(j => ACTIVE_STATES.includes(j.state) && j.expiresAt > clock())
+                || jobs.at(-1) || null;
+            return { material: material || null, parts, notes, job, jobs, published: published || null };
         });
     }
 
     async function startLectureStt(uid, p) {
         const recordingId = id(p.recordingId);
         const startedAt = integer(p.startedAt);
+        const topicId = p.topicId ? id(p.topicId) : "";
+        const endedAt = topicId ? integer(p.endedAt) : 0;
         if (startedAt > clock() + 5 * 60 * 1000) {
             fail("INVALID_RECORDING_TIME", "녹음 시작 시간을 확인해 주세요.", "invalid-argument");
+        }
+        if (topicId && (startedAt === 0 || endedAt <= startedAt || endedAt > clock() + 5 * 60 * 1000)) {
+            fail("INVALID_RECORDING_TIME", "종료된 대단원 녹음의 시간을 확인해 주세요.", "invalid-argument");
         }
         if (!providers.startRecording) fail("CONFIGURATION", "녹음 변환 서버 설정을 확인해 주세요.");
         const attempt = randomUUID();
         const proof = randomBytes(32).toString("base64url");
         const callback = db.collection("clovaCallbacks").doc(attempt);
         const reservation = await checked(uid, p, true, async (tx, { ref, s }) => {
-            if (s.status !== "ENDED") fail("LESSON_NOT_ENDED", "수업을 종료한 뒤 녹음을 변환해 주세요.");
-            const job = jobRef(ref);
+            if (s.status !== "ENDED" && !(s.status === "LIVE" && topicId)) {
+                fail("LESSON_NOT_ENDED", "수업 중에는 종료된 대단원 녹음만 변환할 수 있어요.");
+            }
+            if (topicId && (await topicFor(tx, ref, topicId)).parentTopicId) {
+                fail("INVALID_TOPIC", "녹음을 연결할 대단원을 선택해 주세요.");
+            }
+            const job = jobRef(ref, recordingId);
             const existing = (await tx.get(job)).data();
-            if (existing?.recordingId === recordingId && existing.state === "READY") return { previous: existing };
-            if (existing && ACTIVE_STATES.includes(existing.state) && existing.expiresAt > clock()) {
-                if (existing.recordingId === recordingId) return { previous: existing };
-                fail("STT_BUSY", "이 수업의 다른 녹음을 변환하고 있어요.");
+            const legacy = (await tx.get(jobRef(ref))).data();
+            const previous = existing || (legacy?.recordingId === recordingId ? legacy : null);
+            if (previous?.state === "READY" || previous && ACTIVE_STATES.includes(previous.state)
+                    && previous.expiresAt > clock()) return { previous };
+            if (existing && (existing.startedAt !== startedAt || (existing.topicId || "") !== topicId
+                    || (existing.endedAt || 0) !== endedAt)) {
+                fail("RECORDING_CHANGED", "같은 녹음의 대단원과 시간은 변경할 수 없어요.");
             }
             if (existing?.attempt) tx.delete(db.collection("clovaCallbacks").doc(existing.attempt));
-            const state = { attempt, recordingId, startedAt, state: "SUBMITTING", expiresAt: clock() + PROCESSING_TTL };
+            const state = { attempt, recordingId, startedAt, endedAt, topicId,
+                state: "SUBMITTING", expiresAt: clock() + PROCESSING_TTL };
             tx.set(job, state);
-            tx.create(callback, { sessionId: p.sessionId, proofHash: hash(proof) });
+            tx.create(callback, { sessionId: p.sessionId, jobId: recordingId, proofHash: hash(proof) });
             return { job, state };
         });
         if (reservation.previous) return { job: reservation.previous };
@@ -169,17 +187,29 @@ function createLearningService({ db, access, command, clock, id, text, integer, 
             if (!claim || !timingSafeEqual(Buffer.from(claim.proofHash), Buffer.from(hash(proof)))) return false;
             const ref = db.collection("sessions").doc(claim.sessionId);
             const session = (await tx.get(ref)).data();
-            const job = jobRef(ref);
+            const job = jobRef(ref, claim.jobId || "lecture");
             const current = (await tx.get(job)).data();
             if (!session || session.deletedAt || current?.attempt !== attempt ||
                     !ACTIVE_STATES.includes(current.state)) return false;
             const draft = lectureDraft(ref);
             const prior = (await tx.get(draft)).data();
+            const priorParts = prior ? await all(tx, draft.collection("revisions").doc(prior.sourceId)
+                .collection("parts").orderBy("id")) : [];
             // Imported recordings have no start time on the lesson timeline.
             const visits = current.startedAt === 0 ? [] : await all(tx, ref.collection("visits").orderBy("startedAt"));
             let parts;
             try {
                 parts = transcriptParts(parseClovaTranscript(body, { fromCallback: true }), visits, current.startedAt);
+                parts = parts.map(part => ({ ...part,
+                    topicId: current.topicId || part.topicId,
+                    recordingId: current.recordingId, recordingStartedAt: current.startedAt }));
+                // Merge under the draft transaction lock. Late callbacks cannot replace earlier units or edits.
+                parts = [...priorParts, ...parts].sort((a, b) =>
+                    (a.recordingStartedAt || 0) - (b.recordingStartedAt || 0)
+                    || (a.recordingId || "").localeCompare(b.recordingId || "")
+                    || a.startMs - b.startMs || a.id.localeCompare(b.id));
+                if (parts.length > MAX_PARTS) throw new ProviderError("CLOVA_SPEECH", "TOO_LONG");
+                parts = parts.map((part, i) => ({ ...part, id: String(i).padStart(4, "0") }));
             } catch (error) {
                 if (!(error instanceof ProviderError)) throw error;
                 tx.update(job, { state: "FAILED", error: error.code });
