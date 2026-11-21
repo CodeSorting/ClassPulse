@@ -28,6 +28,7 @@ public final class OnlineServices {
                                 new FirebaseOnlineTransport(FirebaseApp.getInstance()),
                                 true);
         current.retry();
+        if (testFactory == null) LectureRecordingStore.resumeAccount(context, uid);
         return current;
     }
 

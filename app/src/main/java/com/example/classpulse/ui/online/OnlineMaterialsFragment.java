@@ -20,6 +20,7 @@ import androidx.work.WorkInfo;
 import androidx.work.WorkManager;
 import com.example.classpulse.online.LectureRecording;
 import com.example.classpulse.online.LectureUploadWorker;
+import com.example.classpulse.online.LectureRecordingStore;
 import com.example.classpulse.online.OnlineJson;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -84,6 +85,10 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
     @Override
     public void onStart() {
         super.onStart();
+        if (repo != null) {
+            LectureRecording.saved(requireContext(), repo.uid, screen.lessonId);
+            LectureRecordingStore.resume(requireContext(), repo.uid, screen.lessonId);
+        }
         LectureRecording.events().removeObservers(getViewLifecycleOwner());
         LectureRecording.events().observe(getViewLifecycleOwner(), event -> {
             recordingNotice = repo != null && event != null && repo.uid.equals(event.uid)
@@ -129,7 +134,7 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
                 .setEnabled(!loading && !sending);
         if (sending) ui.note(shell.content, "서버 요청을 처리하고 있어요.");
         if (content == null) return;
-        if (teacher && section.isEmpty()) showJob(content.optJSONObject("job"));
+        if (teacher) showProcessing();
         if (wantTranscript) {
             JSONObject material = content.optJSONObject("material");
             JSONArray parts = content.optJSONArray("parts");
@@ -151,14 +156,15 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
     private void showRecording(String state) {
         boolean recording = LectureRecording.isRecording(repo.uid, screen.lessonId);
         LectureRecording.Saved saved = LectureRecording.saved(requireContext(), repo.uid, screen.lessonId);
-        ui.section(shell.content, "수업 녹음", recording ? "녹음 중" : saved == null ? "저장된 녹음 없음" : "기기에 저장된 녹음 있음");
+        ui.section(shell.content, "대단원 자동 녹음", recording ? "자동 녹음 사용 중" : saved == null ? "저장된 녹음 없음" : "기기에 저장된 녹음 있음");
         if (!recordingNotice.isEmpty()) ui.note(shell.content, recordingNotice);
         if (recording) {
-            ui.button(shell.content, "녹음 종료 및 저장", true, () -> LectureRecording.stop(requireContext()));
+            ui.button(shell.content, "자동 녹음 중단 및 저장", true, () -> LectureRecording.stop(requireContext()));
             return;
         }
         if ("LIVE".equals(state)) {
-            ui.button(shell.content, saved == null ? "수업 녹음 시작" : "새 녹음 시작", true, this::confirmRecording);
+            ui.button(shell.content, "대단원 자동 녹음 시작", true, this::confirmRecording);
+            ui.note(shell.content, "소단원 이동은 계속 녹음하고, 대단원이 바뀔 때 파일을 나누어 자동 변환해요.");
         }
         if (!"ENDED".equals(state)) return;
         if (saved != null) observeUpload(saved.id);
@@ -170,6 +176,7 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
                 false, () -> recordingPicker.launch(new String[]{"audio/*"}))
                 .setEnabled(!importing && !uploading && !converting && !sending);
         if (importing || saved == null) return;
+        if (!LectureRecordingStore.get(requireContext(), repo.uid, screen.lessonId, saved.id).optString("topicId").isEmpty()) return;
         if (saved.startedAt == 0) ui.note(shell.content, "테스트 녹음의 원문은 대주제 미지정으로 표시돼요.");
         boolean ready = upload != null && upload.getState() == WorkInfo.State.SUCCEEDED;
         if (!ready) {
@@ -213,7 +220,7 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
 
     private void confirmRecording() {
         new MaterialAlertDialogBuilder(requireContext()).setTitle("수업 녹음을 시작할까요?")
-                .setMessage("녹음 사실을 수업 참여자에게 안내한 뒤 시작해 주세요. 새 녹음은 수업 자료에 연결할 녹음으로 선택됩니다.")
+                .setMessage("녹음 사실을 수업 참여자에게 안내한 뒤 시작해 주세요. 대단원이 바뀌면 녹음을 자동 업로드·STT 변환하고 다음 녹음을 이어가요. 수업 종료 시 마이크를 끄고 마지막 파일만 처리해요. 연결이 끊기면 녹음을 중단하므로 다시 켜 주세요.")
                 .setNegativeButton("취소", null)
                 .setPositiveButton("녹음 시작", (dialog, button) -> {
                     if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO)
@@ -253,19 +260,55 @@ public final class OnlineMaterialsFragment extends OnlineLearningPage {
                 && job.optLong("expiresAt") > System.currentTimeMillis();
     }
 
-    private void showJob(JSONObject job) {
+    private void showProcessing() {
         main.removeCallbacks(refresh);
-        if (job == null) return;
-        if (active(job)) {
-            ui.note(shell.content, "CLOVA Speech에서 원문으로 변환하고 있어요.");
-            main.postDelayed(refresh, 5000);
-        } else if ("READY".equals(job.optString("state"))) {
-            ui.note(shell.content, "변환 완료 · 전체 원문을 확인해 주세요.");
-        } else {
-            String reason = job.optString("error");
-            ui.note(shell.content, "변환 실패 또는 대기 시간 초과 · 녹음과 서버 설정을 확인하고 다시 요청해 주세요."
-                    + (reason.isEmpty() ? "" : " (" + reason + ")"));
+        JSONArray jobs = content.optJSONArray("jobs");
+        if (jobs == null) jobs = new JSONArray();
+        java.util.Map<String, JSONObject> rows = new java.util.LinkedHashMap<>();
+        for (JSONObject local : LectureRecordingStore.list(requireContext(), repo.uid, screen.lessonId)) {
+            rows.put(local.optString("id"), local);
         }
+        for (int i = 0; i < jobs.length(); i++) {
+            JSONObject job = jobs.optJSONObject(i);
+            if (job == null) continue;
+            String id = job.optString("recordingId");
+            JSONObject local = rows.get(id);
+            // A local retry can precede the new server attempt; keep showing the queue in that interval.
+            if (local == null || !pendingUpload(local.optString("state")) || "READY".equals(job.optString("state"))) rows.put(id, job);
+        }
+        boolean polling = LectureRecording.isRecording(repo.uid, screen.lessonId);
+        if (!rows.isEmpty()) ui.section(shell.content, "녹음별 처리 상태", "완료한 원문은 대단원에 연결되어 누적돼요.");
+        for (java.util.Map.Entry<String, JSONObject> row : rows.entrySet()) {
+            JSONObject value = row.getValue();
+            String state = value.optString("state");
+            boolean queued = !value.has("expiresAt") && pendingUpload(state);
+            boolean converting = active(value) || "PROCESSING".equals(state) && !value.has("expiresAt");
+            String label = "READY".equals(state) ? "원문 변환 완료"
+                    : queued ? "업로드·변환 요청 대기 또는 진행 중" : converting ? "원문 변환 중" : "처리 실패 또는 대기 시간 초과";
+            String topic = value.optString("topicId");
+            ui.note(shell.content, (topic.isEmpty() ? "녹음 파일" : topicTitle(topic)) + " · " + label
+                    + (value.optString("error").isEmpty() ? "" : " · " + value.optString("error")));
+            polling |= queued || converting;
+            if (!queued && !converting && !"READY".equals(state)) {
+                String id = row.getKey();
+                JSONObject local = LectureRecordingStore.get(requireContext(), repo.uid, screen.lessonId, id);
+                if (!local.optString("id").isEmpty()) {
+                    ui.button(shell.content, "이 녹음 다시 처리", false, () -> {
+                        LectureUploadWorker.enqueue(requireContext(), repo.uid, screen.lessonId, id);
+                        render();
+                    }).setEnabled(!sending);
+                } else if (!topic.isEmpty()) {
+                    ui.button(shell.content, "이 대단원 변환 다시 요청", false, () -> request("startLectureStt", v -> reload(),
+                            "recordingId", id, "topicId", topic, "startedAt", value.optLong("startedAt"),
+                            "endedAt", value.optLong("endedAt"))).setEnabled(!sending);
+                }
+            }
+        }
+        if (polling) main.postDelayed(refresh, 5000);
+    }
+
+    private boolean pendingUpload(String state) {
+        return "SAVED".equals(state) || "QUEUED".equals(state) || "UPLOADING".equals(state) || "SUBMITTING".equals(state);
     }
 
     private void showTranscript(boolean teacher, JSONObject material, JSONArray parts) {

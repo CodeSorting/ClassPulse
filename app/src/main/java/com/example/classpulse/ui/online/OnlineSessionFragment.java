@@ -12,8 +12,20 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class OnlineSessionFragment extends OnlineFragment {
     private boolean busy, intakeSettingsPending;
+    private String recordingNotice = "";
     private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
     private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
+
+    @Override public void onStart() {
+        super.onStart();
+        LectureRecording.events().removeObservers(getViewLifecycleOwner());
+        LectureRecording.events().observe(getViewLifecycleOwner(), event -> {
+            if (repo != null && event != null && repo.uid.equals(event.uid) && screen.lessonId.equals(event.sessionId)) {
+                recordingNotice = event.message;
+                render();
+            }
+        });
+    }
 
     @Override
     protected String title() {
@@ -71,8 +83,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 ui.button(shell.content, "링크·코드로 초대", false, () -> open("online_invite"));
             if ("LIVE".equals(s.optString("status"))) {
                 ui.note(shell.content, LectureRecording.isRecording(repo.uid, screen.lessonId)
-                        ? "이 수업을 녹음하고 있어요."
-                        : "녹음하려면 녹음·수업 자료에서 수업 녹음 시작을 눌러 주세요.");
+                        ? "대단원 자동 녹음 사용 중 · 대단원 전환 시 업로드·STT, 수업 종료 시 마이크가 꺼져요."
+                        : "녹음·수업 자료에서 자동 녹음을 한 번 켜면 다음 대단원도 이어서 녹음해요.");
+                if (!recordingNotice.isEmpty()) ui.note(shell.content, recordingNotice);
                 if (!p.isNull("currentVisitId") && !p.optString("currentVisitId").isEmpty()) {
                     String nextLabel = !p.isNull("resumeTopicId") && !p.optString("resumeTopicId").isEmpty()
                             ? "재설명 마치고 원래 주제로"
@@ -97,10 +110,10 @@ public final class OnlineSessionFragment extends OnlineFragment {
                         () ->
                                 new MaterialAlertDialogBuilder(requireContext())
                                         .setTitle("수업을 종료할까요?")
-                                        .setMessage("종료 후에도 질문과 답변은 이어갈 수 있어요.")
+                                        .setMessage("녹음은 즉시 멈추고 마지막 대단원은 자동 업로드·변환해요. 종료 후에도 질문과 답변은 이어갈 수 있어요.")
                                         .setNegativeButton("계속 수업", null)
                                         .setPositiveButton("종료", (d, w) -> progress("END", null))
-                                        .show());
+                                        .show()).setEnabled(!busy);
             }
             JSONObject stats = item("STATS", "summary");
             ui.section(shell.content, "학생 반응", "반응은 익명으로 집계돼요.");
@@ -383,6 +396,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
 
     private void progress(String action, String topic) {
         if (busy) return;
+        if ("END".equals(action) && LectureRecording.isRecording(repo.uid, screen.lessonId)) {
+            LectureRecording.stop(requireContext());
+        }
         JSONObject s = lesson();
         JSONObject payload =
                 OnlineJson.values(
@@ -400,7 +416,6 @@ public final class OnlineSessionFragment extends OnlineFragment {
         busy = true;
         render();
         final long token = viewToken();
-        final android.content.Context appContext = requireContext().getApplicationContext();
         final String recordingOwner = repo.uid;
         final String lessonId = screen.lessonId;
         repo.command(
@@ -410,9 +425,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 new OnlineRepository.Callback() {
                     public void success(JSONObject v) {
                         busy = false;
-                        if ("END".equals(action) && LectureRecording.isRecording(recordingOwner, lessonId)) {
-                            LectureRecording.stop(appContext);
-                        }
+                        LectureRecording.progress(recordingOwner, lessonId, v.optJSONObject("session"));
                         if (current(token)) render();
                     }
 
@@ -420,7 +433,8 @@ public final class OnlineSessionFragment extends OnlineFragment {
                         busy = false;
                         if (current(token)) {
                             render();
-                            OnlineSessionFragment.this.error(m);
+                            OnlineSessionFragment.this.error("END".equals(action)
+                                    ? m + " 녹음은 이미 멈췄어요. 수업 종료를 다시 시도해 주세요." : m);
                         }
                     }
                 });
