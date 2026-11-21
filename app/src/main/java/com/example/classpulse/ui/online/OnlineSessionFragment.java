@@ -1,8 +1,13 @@
 package com.example.classpulse.ui.online;
 
+import android.os.Bundle;
 import android.view.View;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import com.example.classpulse.R;
+import com.example.classpulse.domain.Models;
 import com.example.classpulse.online.*;
+import com.example.classpulse.ui.Ui;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,8 +17,23 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class OnlineSessionFragment extends OnlineFragment {
     private boolean busy, intakeSettingsPending;
-    private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
-    private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
+    private String reactionTopicId = "", lastReactionProgress = "";
+
+    @Override
+    public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        if (state != null) {
+            reactionTopicId = state.getString("reactionTopicId", "");
+            lastReactionProgress = state.getString("lastReactionProgress", "");
+        }
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString("reactionTopicId", reactionTopicId);
+        state.putString("lastReactionProgress", lastReactionProgress);
+    }
 
     @Override
     protected String title() {
@@ -27,6 +47,11 @@ public final class OnlineSessionFragment extends OnlineFragment {
         JSONObject s = lesson();
         if (s.optString("id").isEmpty()) {
             ui.note(shell.content, "수업 권한과 진도를 확인하고 있어요.");
+            showNotice();
+            return;
+        }
+        if (!documentsLoaded || !operationsLoaded) {
+            ui.note(shell.content, "수업 내용과 전송 상태를 불러오고 있어요.");
             showNotice();
             return;
         }
@@ -103,24 +128,14 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                         .show());
             }
             JSONObject stats = item("STATS", "summary");
-            ui.section(shell.content, "학생 반응", "반응은 익명으로 집계돼요.");
+            ui.section(shell.content, "대주제별 학생 반응", "좌우로 넘겨 확인해요. 재설명 반응도 해당 대주제에 누적돼요.");
             ui.stats(
                     shell.content,
-                    "참여 학생",
+                    "전체 참여 학생",
                     String.valueOf(stats.optInt("studentCount")),
-                    "반응한 학생",
+                    "전체 반응 학생",
                     String.valueOf(stats.optInt("uniqueReactingStudents")));
-            JSONObject counts = stats.optJSONObject("eventCountsByType");
-            // 반응 유형별 건수를 막대로 비교한다. 가장 많은 유형이 막대 100%.
-            int most = 0;
-            for (int i = 0; i < 4; i++)
-                most = Math.max(most, counts == null ? 0 : counts.optInt(TYPES[i]));
-            for (int i = 0; i < 4; i++)
-                ui.meter(
-                        shell.content,
-                        LABELS[i],
-                        counts == null ? 0 : counts.optInt(TYPES[i]),
-                        most);
+            renderReactionPages(outline, currentTopic);
             ui.button(
                             shell.content,
                             intakeSettingsPending ? "접수 설정 중…"
@@ -128,7 +143,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                             false,
                             () -> setQuestionsOpen(!s.optBoolean("questionsOpen", true)))
                     .setEnabled(!intakeSettingsPending);
-            ui.note(shell.content, "접수를 마감하면 학생의 질문 제출과 네 가지 반응을 함께 막아요. 작성 중인 질문은 초안으로 보관돼요.");
+            ui.note(shell.content, "접수를 마감하면 학생의 질문 제출과 반응을 함께 막아요. 작성 중인 질문은 초안으로 보관돼요.");
         } else {
             ui.button(
                     shell.content,
@@ -160,19 +175,24 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 ui.section(shell.content, "지금 수업은 어떤가요?", accepting
                         ? "반응은 익명으로 전달돼요. 선택한 반응을 다시 누르면 취소돼요."
                         : "교수님이 질문·반응 접수를 마감했어요. 다시 열리면 참여할 수 있어요.");
-                for (int row = 0; row < 2; row++) {
-                    int a = row * 2, b = a + 1;
+                String visitId = p.optString("currentVisitId");
+                List<String> types = Models.REACTION_TYPES;
+                for (int i = 0; i + 1 < types.size(); i += 2) {
+                    String left = types.get(i), right = types.get(i + 1);
                     ui.pair(
                             shell.dock,
-                            reactionLabel(a, p.optString("currentVisitId")),
-                            () -> react(a, progress),
-                            reactionLabel(b, p.optString("currentVisitId")),
-                            () -> react(b, progress));
+                            reactionLabel(left, visitId),
+                            () -> react(left, progress),
+                            reactionLabel(right, visitId),
+                            () -> react(right, progress));
                     View pair = shell.dock.getChildAt(shell.dock.getChildCount() - 1);
-                    String visitId = p.optString("currentVisitId");
-                    pair.findViewById(R.id.left).setEnabled(accepting && !reactionPending(a, visitId));
-                    pair.findViewById(R.id.right).setEnabled(accepting && !reactionPending(b, visitId));
+                    pair.findViewById(R.id.left).setEnabled(accepting && !reactionPending(left, visitId));
+                    pair.findViewById(R.id.right).setEnabled(accepting && !reactionPending(right, visitId));
                 }
+                String understoodLabel = reactionLabel(Models.UNDERSTOOD, visitId);
+                ui.button(shell.dock, understoodLabel, understoodLabel.startsWith("✓"),
+                        () -> react(Models.UNDERSTOOD, progress))
+                        .setEnabled(accepting && !reactionPending(Models.UNDERSTOOD, visitId));
             }
         }
         ui.section(shell.content, teacher ? "접수된 질문" : "내 질문", null);
@@ -240,24 +260,49 @@ public final class OnlineSessionFragment extends OnlineFragment {
         ui.button(shell.content, "전송 상태 다시 확인", false, repo::retry);
     }
 
-    private String reactionLabel(int index, String visitId) {
-        OnlineDatabase.Document receipt = reactionReceipt(index, visitId);
-        return receipt != null && !receipt.deleted ? "✓ " + LABELS[index] : LABELS[index];
+    private void renderReactionPages(List<OnlineDatabase.Document> outline, String currentTopic) {
+        List<Ui.ReactionPage> pages = new ArrayList<>();
+        JSONObject current = item("TOPIC", currentTopic);
+        String currentRoot = current.isNull("parentTopicId") ? currentTopic : current.optString("parentTopicId");
+        for (OnlineDatabase.Document root : outline) {
+            if (!OnlineJson.object(root.json).isNull("parentTopicId")) continue;
+            Ui.ReactionPage page = new Ui.ReactionPage(root.id,
+                    (pages.size() + 1) + ". " + topicTitle(root.id), root.id.equals(currentRoot));
+            for (OnlineDatabase.Document topic : outline) {
+                JSONObject entry = OnlineJson.object(topic.json);
+                if (!root.id.equals(topic.id) && !root.id.equals(entry.optString("parentTopicId"))) continue;
+                JSONObject counts = item("STATS", "topic_" + topic.id).optJSONObject("eventCountsByType");
+                if (counts == null) continue;
+                for (int i = 0; i < Models.REACTION_TYPES.size(); i++)
+                    page.counts[i] += counts.optInt(Models.REACTION_TYPES.get(i));
+            }
+            pages.add(page);
+        }
+        if (!currentRoot.isEmpty() && !currentRoot.equals(lastReactionProgress)) {
+            reactionTopicId = currentRoot;
+            lastReactionProgress = currentRoot;
+        }
+        ui.reactionPages(shell.content, pages, reactionTopicId, id -> reactionTopicId = id);
     }
 
-    private OnlineDatabase.Document reactionReceipt(int index, String visitId) {
+    private String reactionLabel(String type, String visitId) {
+        OnlineDatabase.Document receipt = reactionReceipt(type, visitId);
+        return (receipt != null && !receipt.deleted ? "✓ " : "") + Ui.reactionLabel(type);
+    }
+
+    private OnlineDatabase.Document reactionReceipt(String type, String visitId) {
         for (OnlineDatabase.Document document : docs) {
             if (!"OWN_REACTION".equals(document.kind)) continue;
             JSONObject receipt = OnlineJson.object(document.json);
-            if (visitId.equals(receipt.optString("visitId")) && TYPES[index].equals(receipt.optString("type"))) {
+            if (visitId.equals(receipt.optString("visitId")) && type.equals(receipt.optString("type"))) {
                 return document;
             }
         }
         return null;
     }
 
-    private boolean reactionPending(int index, String visitId) {
-        String key = OnlineRepository.reactionKey(screen.lessonId, visitId, TYPES[index]);
+    private boolean reactionPending(String type, String visitId) {
+        String key = OnlineRepository.reactionKey(screen.lessonId, visitId, type);
         for (OnlineDatabase.Outbox operation : operations) {
             if (key.equals(operation.entityKey) && !"ACKED".equals(operation.state)
                     && !"REJECTED".equals(operation.state)) return true;
@@ -340,7 +385,7 @@ public final class OnlineSessionFragment extends OnlineFragment {
                 });
     }
 
-    private void react(int index, JSONObject p) {
+    private void react(String type, JSONObject p) {
         JSONObject current = lesson();
         JSONObject currentProgress = current.optJSONObject("progress");
         if (!current.optBoolean("questionsOpen", true)) {
@@ -354,10 +399,10 @@ public final class OnlineSessionFragment extends OnlineFragment {
             return;
         }
         String visitId = p.optString("currentVisitId");
-        if (reactionPending(index, visitId)) return;
-        OnlineDatabase.Document receipt = reactionReceipt(index, visitId);
+        if (reactionPending(type, visitId)) return;
+        OnlineDatabase.Document receipt = reactionReceipt(type, visitId);
         boolean selected = receipt == null || receipt.deleted;
-        repo.setReaction(screen.lessonId, p.optString("currentTopicId"), visitId, TYPES[index],
+        repo.setReaction(screen.lessonId, p.optString("currentTopicId"), visitId, type,
                 selected, receipt == null ? 0 : receipt.revision, callback(v -> {
                     if (shell != null) shell.dock.announceForAccessibility(
                             selected ? "익명 반응을 보냈어요." : "반응을 취소했어요.");

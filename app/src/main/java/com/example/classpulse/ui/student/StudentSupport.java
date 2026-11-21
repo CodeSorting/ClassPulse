@@ -38,12 +38,4 @@ final class StudentSupport {
             }
         return latest;
     }
-
-    static String reaction(String type) {
-        if ("UNDERSTANDING".equals(type)) return "이해가 안 돼요";
-        if ("SPEED".equals(type)) return "너무 빨라요";
-        if ("TERM".equals(type)) return "용어가 어려워요";
-        if ("CALCULATION".equals(type)) return "계산을 놓쳤어요";
-        return "수업 반응";
-    }
 }

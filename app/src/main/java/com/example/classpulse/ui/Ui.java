@@ -5,11 +5,15 @@ import android.content.res.ColorStateList;
 import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
+import androidx.annotation.NonNull;
+import androidx.viewpager.widget.PagerAdapter;
+import androidx.viewpager.widget.ViewPager;
 
 import com.example.classpulse.R;
 import com.example.classpulse.databinding.*;
@@ -223,7 +227,16 @@ public final class Ui {
         add(parent, b.getRoot());
     }
 
-    /** 네 가지 익명 반응의 아이콘. 반응 이름이 아니면 0을 돌려준다. */
+    public static String reactionLabel(String type) {
+        if (Models.UNDERSTANDING.equals(type)) return "이해가 안 돼요";
+        if (Models.SPEED.equals(type)) return "너무 빨라요";
+        if (Models.TERM.equals(type)) return "용어가 어려워요";
+        if (Models.CALCULATION.equals(type)) return "계산을 놓쳤어요";
+        if (Models.UNDERSTOOD.equals(type)) return "이해됐어요";
+        return "수업 반응";
+    }
+
+    /** 타일형 익명 반응의 아이콘. 해당하지 않으면 0을 돌려준다. */
     public static int reactionIconRes(String label) {
         if (label == null) return 0;
         if (label.contains("이해가 안")) return R.drawable.ic_cp_confused;
@@ -382,6 +395,87 @@ public final class Ui {
         b.bar.setMax(Math.max(1, max));
         b.bar.setProgressCompat(Math.max(0, Math.min(value, Math.max(1, max))), false);
         add(parent, b.getRoot());
+    }
+
+    public static final class ReactionPage {
+        public final String id, title;
+        public final boolean current;
+        public final int[] counts = new int[Models.REACTION_TYPES.size()];
+
+        public ReactionPage(String id, String title, boolean current) {
+            this.id = id;
+            this.title = title;
+            this.current = current;
+        }
+    }
+
+    public void reactionPages(LinearLayout parent, List<ReactionPage> pages, String selectedId,
+                              Consumer<String> selected) {
+        if (pages.isEmpty()) return;
+        BlockReactionPagesBinding binding = BlockReactionPagesBinding.inflate(inflater, parent, false);
+        binding.reactionPager.setAdapter(new PagerAdapter() {
+            @Override
+            public int getCount() {
+                return pages.size();
+            }
+
+            @Override
+            public boolean isViewFromObject(@NonNull View view, @NonNull Object object) {
+                return view == object;
+            }
+
+            @NonNull
+            @Override
+            public Object instantiateItem(@NonNull ViewGroup container, int position) {
+                ReactionPage page = pages.get(position);
+                LinearLayout body = new LinearLayout(context);
+                body.setOrientation(LinearLayout.VERTICAL);
+                body.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                int total = 0, most = 0;
+                for (int count : page.counts) {
+                    total += count;
+                    most = Math.max(most, count);
+                }
+                section(body, page.title, (page.current ? "현재 대주제 · " : "") + "반응 " + total + "건");
+                for (int i = 0; i < Models.REACTION_TYPES.size(); i++)
+                    meter(body, reactionLabel(Models.REACTION_TYPES.get(i)), page.counts[i], most);
+                container.addView(body);
+                return body;
+            }
+
+            @Override
+            public void destroyItem(@NonNull ViewGroup container, int position, @NonNull Object object) {
+                container.removeView((View) object);
+            }
+        });
+        int initial = 0;
+        for (int i = 0; i < pages.size(); i++)
+            if (pages.get(i).id.equals(selectedId)) initial = i;
+        binding.reactionPager.setCurrentItem(initial, false);
+        Consumer<Integer> updateSelection = position -> {
+            binding.reactionPosition.setText((position + 1) + " / " + pages.size());
+            binding.reactionPosition.setContentDescription(
+                    pages.get(position).title + " · " + (position + 1) + " / " + pages.size());
+            binding.reactionPrevious.setEnabled(position > 0);
+            binding.reactionPrevious.setAlpha(position > 0 ? 1f : 0.35f);
+            binding.reactionNext.setEnabled(position + 1 < pages.size());
+            binding.reactionNext.setAlpha(position + 1 < pages.size() ? 1f : 0.35f);
+            selected.accept(pages.get(position).id);
+        };
+        binding.reactionPager.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
+            @Override
+            public void onPageSelected(int position) {
+                updateSelection.accept(position);
+                binding.reactionPager.requestLayout();
+            }
+        });
+        binding.reactionPrevious.setOnClickListener(view ->
+                binding.reactionPager.setCurrentItem(binding.reactionPager.getCurrentItem() - 1, true));
+        binding.reactionNext.setOnClickListener(view ->
+                binding.reactionPager.setCurrentItem(binding.reactionPager.getCurrentItem() + 1, true));
+        updateSelection.accept(initial);
+        add(parent, binding.getRoot());
     }
 
     public void divider(LinearLayout parent) {

@@ -1,7 +1,6 @@
 package com.example.classpulse.domain;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -11,10 +10,6 @@ import java.util.Set;
 
 /** Aggregate counts only: never includes personal marks or unsubmitted question drafts. */
 public final class LessonAnalytics {
-    public static final List<String> TYPES =
-            Collections.unmodifiableList(
-                    Arrays.asList(
-                            Models.UNDERSTANDING, Models.SPEED, Models.TERM, Models.CALCULATION));
     public final int participants,
             respondingStudents,
             reactionEvents,
@@ -47,7 +42,7 @@ public final class LessonAnalytics {
         int events = 0, questions = 0, unanswered = 0;
         for (Models.Reaction reaction : lesson.reactions) {
             Accumulator topic = byTopic.get(reaction.topicId);
-            int type = TYPES.indexOf(reaction.type);
+            int type = Models.REACTION_TYPES.indexOf(reaction.type);
             if (topic == null || type < 0 || !members.contains(reaction.studentId)) continue;
             topic.events++;
             topic.responders.add(reaction.studentId);
@@ -86,12 +81,12 @@ public final class LessonAnalytics {
             reactionEvents = value.events;
             questions = value.questions;
             unanswered = value.unanswered;
-            byType = new int[TYPES.size()];
+            byType = new int[Models.REACTION_TYPES.size()];
             for (int i = 0; i < byType.length; i++) byType[i] = value.byType.get(i).size();
         }
 
         public int studentsFor(String type) {
-            int index = TYPES.indexOf(type);
+            int index = Models.REACTION_TYPES.indexOf(type);
             return index < 0 ? 0 : byType[index];
         }
     }
@@ -104,7 +99,7 @@ public final class LessonAnalytics {
 
         Accumulator(Models.Topic topic) {
             this.topic = topic;
-            for (int i = 0; i < TYPES.size(); i++) byType.add(new HashSet<>());
+            for (int i = 0; i < Models.REACTION_TYPES.size(); i++) byType.add(new HashSet<>());
         }
     }
 }

@@ -268,6 +268,11 @@ public final class FirebaseOnlineTransport implements OnlineTransport {
         if (owner) {
             watch(db.collection(base + "/teacherDrafts"), "ANSWER_DRAFT", sink, all);
             watch(db.document(base + "/analytics/summary"), "STATS", sink, all);
+            watch(db.collection(base + "/analytics")
+                            .orderBy(FieldPath.documentId())
+                            .startAt("topic_")
+                            .endAt("topic_\uf8ff"),
+                    "STATS", sink, all);
         }
         return () -> {
             for (ListenerRegistration r : all) r.remove();

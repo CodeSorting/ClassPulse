@@ -47,15 +47,19 @@ public class LessonAnalyticsTest {
         reaction(lesson, "student1", "A", Models.TERM);
         reaction(lesson, "student2", "A", Models.SPEED);
         reaction(lesson, "student1", "B", Models.CALCULATION);
+        reaction(lesson, "student1", "B", Models.UNDERSTOOD);
         LessonAnalytics actual = LessonAnalytics.from(lesson);
         assertEquals(2, actual.participants);
         assertEquals(2, actual.respondingStudents);
-        assertEquals(5, actual.reactionEvents);
+        assertEquals(6, actual.reactionEvents);
         assertEquals(4, actual.topics.get(0).reactionEvents);
         assertEquals(2, actual.topics.get(0).respondingStudents);
         assertEquals(2, actual.topics.get(0).studentsFor(Models.SPEED));
         assertEquals(1, actual.topics.get(0).studentsFor(Models.TERM));
         assertEquals(1, actual.topics.get(1).studentsFor(Models.CALCULATION));
+        assertEquals(1, actual.topics.get(1).studentsFor(Models.UNDERSTOOD));
+        assertEquals(0, actual.topics.get(1).studentsFor(Models.UNDERSTANDING));
+        assertEquals(1, actual.topics.get(1).respondingStudents);
     }
 
     @Test

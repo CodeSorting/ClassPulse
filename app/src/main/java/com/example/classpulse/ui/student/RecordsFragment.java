@@ -77,7 +77,7 @@ public class RecordsFragment extends BaseFragment {
                     count++;
                     ui.card(
                             content,
-                            StudentSupport.reaction(item.type),
+                            Ui.reactionLabel(item.type),
                             Ui.topicTitle(course, item.topicId) + " · " + Ui.time(item.createdAt),
                             "기록됨",
                             () -> {
@@ -142,7 +142,7 @@ public class RecordsFragment extends BaseFragment {
                     content,
                     reactions ? "아직 남긴 반응이 없어요" : "아직 개인 기록이 없어요",
                     reactions
-                            ? "수업 화면의 네 가지 반응으로 어려움을 전할 수 있어요."
+                            ? "수업 화면에서 지금의 이해 상태를 전할 수 있어요."
                             : "질문 표시나 작성 중인 질문은 이곳에서 이어서 볼 수 있어요.");
         ui.note(content, "개인 표시·초안은 나만 볼 수 있어요. 교수님이 접수한 질문과 공개된 답변을 구분해 표시해요.");
         ui.button(dock, "내 수업으로", true, () -> navigate("home"));

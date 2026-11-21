@@ -505,7 +505,7 @@ public class NavigationInstrumentedTest {
         awaitRoute("confirm_join");
         tap("이 수업에 참여하기");
         awaitRoute("live");
-        String[] reactions = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
+        String[] reactions = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"};
         for (int i = 0; i < reactions.length; i++) {
             tap(reactions[i]);
             final int count = i + 1;
@@ -513,7 +513,7 @@ public class NavigationInstrumentedTest {
         }
         for (String reaction : reactions)
             onView(withText("✓ " + reaction)).check(matches(isDisplayed()));
-        screenshot("student-live-four-reactions");
+        screenshot("student-live-reactions");
         tap("질문 작성");
         awaitRoute("question_edit");
         field("궁금한 내용", "두 번째 주제의 계산이 궁금해요");
@@ -532,6 +532,7 @@ public class NavigationInstrumentedTest {
         scrollTap("주제별 반응 분석");
         awaitRoute("analysis");
         onView(withText("이해가 안 돼요  1명 · 100%")).perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withText("이해됐어요  1명 · 100%")).perform(scrollTo()).check(matches(isDisplayed()));
         scenario.onActivity(activity ->
                 ((androidx.core.widget.NestedScrollView) activity.findViewById(R.id.scroll))
                         .scrollTo(0, 0));
@@ -568,7 +569,7 @@ public class NavigationInstrumentedTest {
         tap("전체 자료 기기에 저장");
         awaitLesson(id, l -> !l.downloads.isEmpty());
         assertEquals(fullText, snapshot(id).downloads.get(0).original);
-        assertEquals(4, snapshot(id).reactions.size());
+        assertEquals(reactions.length, snapshot(id).reactions.size());
         assertTrue(snapshot(id).question(questionId).published);
         assertEquals(questionTopic, snapshot(id).question(questionId).topicId);
     }
@@ -610,13 +611,57 @@ public class NavigationInstrumentedTest {
     }
 
     @Test
-    public void allFourReactionButtonsRemainVisibleAndReadable() {
-        String id = create("네 반응 배치 확인");
+    public void localTeacherReactionsStaySeparatedAcrossTopicChangesAndRevisits() {
+        String id = create("대주제 반응 구분");
+        join(id);
+        ok(cb -> repo.startLesson(id, cb));
+        String firstVisit = snapshot(id).currentVisitId;
+        success((LessonRepository.Callback<Boolean> cb) ->
+                repo.toggleReaction(id, Models.STUDENT_ID, firstVisit, Models.UNDERSTANDING, cb));
+        ok(cb -> repo.completeTopic(id, cb));
+        String secondVisit = snapshot(id).currentVisitId;
+        success((LessonRepository.Callback<Boolean> cb) ->
+                repo.toggleReaction(id, Models.STUDENT_ID, secondVisit, Models.UNDERSTOOD, cb));
+        launch("TEACHER");
+        open("live", screen(id));
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("2 / 2")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "0건");
+        assertReactionCount("이해됐어요", "1건");
+        onView(withId(R.id.reaction_pager))
+                .perform(androidx.test.espresso.action.ViewActions.swipeRight());
+        onView(withText("1 / 2")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "1건");
+        assertReactionCount("이해됐어요", "0건");
+        scenario.recreate();
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("1 / 2")).check(matches(isDisplayed()));
+        onView(withContentDescription("다음 대주제 반응")).perform(click());
+        String firstTopic = snapshot(id).topics.get(0).id;
+        ok(cb -> repo.revisitTopic(id, firstTopic, cb));
+        String revisit = snapshot(id).currentVisitId;
+        success((LessonRepository.Callback<Boolean> cb) ->
+                repo.toggleReaction(id, Models.STUDENT_ID, revisit, Models.UNDERSTANDING, cb));
+        awaitLesson(id, lesson -> lesson.reactions.size() == 3);
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("1 / 2")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "2건");
+        screenshot("local-major-topic-reactions");
+    }
+
+    private void assertReactionCount(String label, String count) {
+        onView(allOf(withId(R.id.value), hasSibling(withText(label)), isDisplayed()))
+                .check(matches(withText(count)));
+    }
+
+    @Test
+    public void allReactionButtonsRemainVisibleAndReadable() {
+        String id = create("반응 버튼 배치 확인");
         join(id);
         ok(cb -> repo.startLesson(id, cb));
         launch("STUDENT");
         open("live", screen(id));
-        String[] labels = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
+        String[] labels = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"};
         for (String label : labels) {
             onView(withText(label))
                     .check(matches(isCompletelyDisplayed()))

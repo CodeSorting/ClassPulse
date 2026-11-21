@@ -462,7 +462,7 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
-    public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllFourReactions()
+    public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllReactions()
             throws Exception {
         Client teacher = client(), student = client();
         JSONObject f = create(teacher);
@@ -481,19 +481,19 @@ public class OnlineEmulatorInstrumentedTest {
         onView(withText("완료하고 다음 주제")).check(doesNotExist());
         onView(withText("다음 대주제로 넘어가기")).check(doesNotExist());
         onView(withText("마지막 대주제 완료")).check(doesNotExist());
-        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"})
             onView(withText(label)).check(matches(isEnabled()));
         JSONObject closed = mutate(teacher, "setQuestionsOpen", OnlineJson.values(
                 "sessionId", sid, "baseRevision", last.getJSONObject("session").optLong("revision"), "open", false));
         await(() -> !cached(student, sid).optBoolean("questionsOpen", true));
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"})
             onView(withText(label)).check(matches(not(isEnabled())));
         mutate(teacher, "setQuestionsOpen", OnlineJson.values(
                 "sessionId", sid, "baseRevision", closed.getJSONObject("session").optLong("revision"), "open", true));
         await(() -> cached(student, sid).optBoolean("questionsOpen"));
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"})
             onView(withText(label)).check(matches(isEnabled()));
     }
 
@@ -522,7 +522,7 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
-    public void tappingSelectedReactionCancelsItAndUpdatesTeacherThroughFirebase() throws Exception {
+    public void understoodReactionCanBeCanceledAndAppearsInTeacherStatsAndStudentRecords() throws Exception {
         Client teacher = client(), student = client();
         String sid = create(teacher).optString("sid");
         join(teacher, student, sid);
@@ -531,7 +531,7 @@ public class OnlineEmulatorInstrumentedTest {
                 "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
         showSession(student, sid);
 
-        String label = "용어가 어려워요", selected = "✓ " + label;
+        String label = "이해됐어요", selected = "✓ " + label;
         await(() -> teacherReactionCount(teacher, sid) == 0 && hasEnabledReaction(label));
         onView(withText(label)).perform(click());
         await(() -> teacherReactionCount(teacher, sid) == 1 && hasEnabledReaction(selected));
@@ -543,6 +543,116 @@ public class OnlineEmulatorInstrumentedTest {
         onView(withText(selected)).check(doesNotExist());
         onView(withText(label)).perform(click());
         await(() -> teacherReactionCount(teacher, sid) == 1 && hasEnabledReaction(selected));
+        JSONObject counts = OnlineJson.object(teacher.db.store().document(sid, "STATS", "summary").json)
+                .getJSONObject("eventCountsByType");
+        assertEquals(1, counts.getInt("UNDERSTOOD"));
+        assertEquals(0, counts.optInt("UNDERSTANDING"));
+
+        scenario.onActivity(a -> a.navigate("online_records", ScreenContext.empty().forLesson(sid)));
+        await(() -> hasEnabledReaction("내 반응"));
+        onView(withText("내 반응")).perform(click());
+        await(() -> hasEnabledReaction(label));
+    }
+
+    @Test
+    public void teacherSwipesBetweenMajorTopicReactionsAndKeepsSelectionAcrossUpdates() throws Exception {
+        Client teacher = client(), student = client();
+        String sid = OnlineJson.id(), major = OnlineJson.id(), first = OnlineJson.id(),
+                second = OnlineJson.id(), next = OnlineJson.id(), empty = OnlineJson.id();
+        mutate(teacher, "createSession", OnlineJson.values(
+                "sessionId", sid, "title", "대주제별 반응 테스트", "description", "",
+                "topics", new JSONArray()
+                        .put(OnlineJson.values("id", major, "title", "확률 기초"))
+                        .put(OnlineJson.values("id", first, "title", "확률의 정의", "parentTopicId", major))
+                        .put(OnlineJson.values("id", second, "title", "독립 사건", "parentTopicId", major))
+                        .put(OnlineJson.values("id", next, "title", "베이즈 정리"))
+                        .put(OnlineJson.values("id", empty, "title", "분류"))));
+        join(teacher, student, sid);
+        watchers.add(student.repo.watchLesson(sid));
+        JSONObject started = mutate(teacher, "changeProgress",
+                OnlineJson.values("sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        String visit = started.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
+                "topicId", first, "visitId", visit, "type", "UNDERSTANDING"));
+        JSONObject advanced = mutate(teacher, "changeProgress",
+                OnlineJson.values("sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
+        visit = advanced.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
+                "topicId", second, "visitId", visit, "type", "UNDERSTOOD"));
+        advanced = mutate(teacher, "changeProgress",
+                OnlineJson.values("sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 2));
+        String nextVisit = advanced.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
+                "topicId", next, "visitId", nextVisit, "type", "SPEED"));
+        showSession(teacher, sid);
+        await(() -> teacher.db.store().document(sid, "STATS", "topic_" + first) != null
+                && teacher.db.store().document(sid, "STATS", "topic_" + second) != null
+                && teacher.db.store().document(sid, "STATS", "topic_" + next) != null);
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("2 / 3")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "0건");
+        assertReactionCount("이해됐어요", "0건");
+        assertReactionCount("너무 빨라요", "1건");
+        onView(withId(R.id.reaction_pager)).perform(swipeRight());
+        onView(withText("1 / 3")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "1건");
+        assertReactionCount("이해됐어요", "1건");
+        assertReactionCount("너무 빨라요", "0건");
+        onView(withContentDescription("이전 대주제 반응")).check(matches(not(isEnabled())));
+
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
+                "topicId", next, "visitId", nextVisit, "type", "CALCULATION"));
+        await(() -> OnlineJson.object(teacher.db.store().document(sid, "STATS", "topic_" + next).json)
+                .optInt("reactionEventCount") == 2);
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("1 / 3")).check(matches(isDisplayed()));
+        scenario.recreate();
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("1 / 3")).check(matches(isDisplayed()));
+        onView(withId(R.id.reaction_pager)).perform(swipeLeft());
+        assertReactionCount("계산을 놓쳤어요", "1건");
+        onView(withContentDescription("다음 대주제 반응")).perform(click());
+        onView(withText("3 / 3")).check(matches(isDisplayed()));
+        assertReactionCount("이해됐어요", "0건");
+        onView(withContentDescription("다음 대주제 반응")).check(matches(not(isEnabled())));
+        onView(withContentDescription("이전 대주제 반응")).perform(click());
+
+        JSONObject revisited = mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "REVISIT", "topicId", first, "expectedProgressVersion", 3));
+        String revisit = revisited.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
+                "topicId", first, "visitId", revisit, "type", "UNDERSTANDING"));
+        await(() -> OnlineJson.object(teacher.db.store().document(sid, "STATS", "topic_" + first).json)
+                .optInt("reactionEventCount") == 2);
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(withText("1 / 3")).check(matches(isDisplayed()));
+        assertReactionCount("이해가 안 돼요", "2건");
+        mutate(student, "setReaction", OnlineJson.values("sessionId", sid,
+                "topicId", first, "visitId", revisit, "type", "UNDERSTANDING",
+                "selected", false, "baseRevision", 1));
+        await(() -> OnlineJson.object(teacher.db.store().document(sid, "STATS", "topic_" + first).json)
+                .optInt("reactionEventCount") == 1);
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        assertReactionCount("이해가 안 돼요", "1건");
+        assertReactionCount("이해됐어요", "1건");
+        assertNull(student.db.store().document(sid, "STATS", "summary"));
+        assertNull(student.db.store().document(sid, "STATS", "topic_" + first));
+        capture("teacher-major-topic-reactions");
+    }
+
+    private void assertReactionCount(String label, String count) throws Exception {
+        await(() -> {
+            try {
+                onView(org.hamcrest.Matchers.allOf(withId(R.id.value),
+                        hasSibling(withText(label)), isCompletelyDisplayed()))
+                        .check(matches(withText(count)));
+                return true;
+            } catch (androidx.test.espresso.NoMatchingViewException
+                     | androidx.test.espresso.AmbiguousViewMatcherException | AssertionError error) {
+                // A swipe can briefly expose both pages while Firestore updates are rendered.
+                return false;
+            }
+        });
     }
 
     private boolean hasEnabledReaction(String label) {
@@ -560,7 +670,7 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
-    public void nativeStudentScreenShowsFourReactionsAndSubmitsAQuestionToFirebase()
+    public void nativeStudentScreenShowsReactionsAndSubmitsAQuestionToFirebase()
             throws Exception {
         Client teacher = client(), student = client();
         JSONObject f = create(teacher);
@@ -588,7 +698,7 @@ public class OnlineEmulatorInstrumentedTest {
                 a -> a.navigate("online_session", ScreenContext.empty().forLesson(sid)));
         await(() -> cached(student, sid).optString("status").equals("LIVE"));
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"})
+        for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"})
             onView(withText(label)).check(matches(isDisplayed()));
         capture("online-student-live-emulator");
         onView(withText("용어가 어려워요")).perform(click());

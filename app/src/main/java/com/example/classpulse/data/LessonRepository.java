@@ -50,8 +50,6 @@ public final class LessonRepository {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LiveData<List<Models.Lesson>> lessons;
     private final MutableLiveData<String> initializationError = new MutableLiveData<>();
-    private static final List<String> REACTION_TYPES =
-            Arrays.asList(Models.UNDERSTANDING, Models.SPEED, Models.TERM, Models.CALCULATION);
 
     public static LessonRepository get(Context context) {
         if (instance == null)
@@ -631,7 +629,7 @@ public final class LessonRepository {
                         throw new IllegalStateException("지금 진행 중인 대주제가 없어요.");
                     if (!l.currentVisitId.equals(visitId))
                         throw new IllegalStateException("진도가 바뀌었어요. 현재 주제를 다시 확인해 주세요.");
-                    if (!REACTION_TYPES.contains(type))
+                    if (!Models.REACTION_TYPES.contains(type))
                         throw new IllegalArgumentException("반응 유형을 다시 선택해 주세요.");
                     String reactionId = stableId(uid, visitId, type);
                     if (dao.deleteReaction(reactionId) != 0) return false;

@@ -3,6 +3,7 @@ package com.example.classpulse.ui.online;
 import android.os.Bundle;
 import androidx.annotation.NonNull;
 import com.example.classpulse.online.*;
+import com.example.classpulse.ui.Ui;
 import com.example.classpulse.ui.ScreenContext;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
@@ -81,16 +82,9 @@ public final class OnlineRecordsFragment extends OnlineFragment {
             if (kind("OWN_REACTION").isEmpty()) ui.note(shell.content, "아직 남긴 반응이 없어요.");
             for (OnlineDatabase.Document d : kind("OWN_REACTION")) {
                 JSONObject r = OnlineJson.object(d.json);
-                String type = r.optString("type");
-                String label =
-                        "UNDERSTANDING".equals(type)
-                                ? "이해가 안 돼요"
-                                : "SPEED".equals(type)
-                                        ? "너무 빨라요"
-                                        : "TERM".equals(type) ? "용어가 어려워요" : "계산을 놓쳤어요";
                 ui.card(
                         shell.content,
-                        label,
+                        Ui.reactionLabel(r.optString("type")),
                         topicTitle(r.optString("topicId")),
                         "내 반응",
                         () -> open("online_session", screen.forLesson(screen.lessonId)));

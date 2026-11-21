@@ -15,6 +15,7 @@ const {
     deleteApp
 } = require("firebase-admin/app");
 const {
+    FieldValue,
     getFirestore
 } = require("firebase-admin/firestore");
 const {
@@ -501,6 +502,48 @@ test("canceling a reaction updates all scopes without losing other visits, types
     assert.equal(value.uniqueReactingStudents, 1);
     assert.equal(value.uniqueStudentsByType.SPEED, 0);
     assert.equal((await stats("summary")).uniqueReactingStudents, 2);
+});
+
+test("understood is counted and canceled independently on existing class analytics", async () => {
+    const f = await fixture();
+    await join(student, f);
+    const started = await start(f);
+    const topicId = f.topics[0].id;
+    const visitId = started.session.progress.currentVisitId;
+    const payload = { sessionId: f.sid, topicId, visitId };
+    await mutate(student, "submitReaction", { ...payload, type: "UNDERSTANDING" });
+    const stats = ["summary", "topic_" + topicId, "visit_" + visitId]
+        .map(scope => db.doc("sessions/" + f.sid + "/analytics/" + scope));
+    for (const ref of stats)
+        await ref.update({
+            "eventCountsByType.UNDERSTOOD": FieldValue.delete(),
+            "uniqueStudentsByType.UNDERSTOOD": FieldValue.delete()
+        });
+
+    const reaction = { ...payload, type: "UNDERSTOOD" };
+    const submitted = await mutate(student, "setReaction", { ...reaction, selected: true, baseRevision: 0 });
+    assert.equal(submitted.receipt.type, "UNDERSTOOD");
+    for (const ref of stats) {
+        const value = (await ref.get()).data();
+        assert.equal(value.reactionEventCount, 2);
+        assert.equal(value.uniqueReactingStudents, 1);
+        assert.equal(value.eventCountsByType.UNDERSTANDING, 1);
+        assert.equal(value.eventCountsByType.UNDERSTOOD, 1);
+        assert.equal(value.uniqueStudentsByType.UNDERSTOOD, 1);
+    }
+
+    const canceled = await mutate(student, "setReaction", {
+        ...reaction, selected: false, baseRevision: submitted.receipt.revision
+    });
+    assert.ok(canceled.receipt.deletedAt);
+    for (const ref of stats) {
+        const value = (await ref.get()).data();
+        assert.equal(value.reactionEventCount, 1);
+        assert.equal(value.uniqueReactingStudents, 1);
+        assert.equal(value.eventCountsByType.UNDERSTANDING, 1);
+        assert.equal(value.eventCountsByType.UNDERSTOOD, 0);
+        assert.equal(value.uniqueStudentsByType.UNDERSTOOD, 0);
+    }
 });
 
 test("closing question intake also rejects delayed reactions; reopening accepts both without duplicate counts", async () => {

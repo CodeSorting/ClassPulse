@@ -25,7 +25,7 @@ public abstract class OnlineFragment extends Fragment {
     protected List<OnlineDatabase.Outbox> operations = Collections.emptyList();
     protected List<OnlineDatabase.Conflict> conflicts = Collections.emptyList();
     protected String notice = "";
-    protected boolean draftsLoaded;
+    protected boolean draftsLoaded, documentsLoaded, operationsLoaded;
     private OnlineTransport.Subscription subscription;
     private boolean observing, deletionHandled;
     private long generation;
@@ -61,6 +61,8 @@ public abstract class OnlineFragment extends Fragment {
         observing = false;
         deletionHandled = false;
         draftsLoaded = false;
+        documentsLoaded = false;
+        operationsLoaded = false;
         shell.screenTitle.setText(title());
         shell.demoBanner.setText("내 계정의 온라인 수업");
         shell.roleLabel.setText("온라인");
@@ -105,6 +107,7 @@ public abstract class OnlineFragment extends Fragment {
                             getViewLifecycleOwner(),
                             v -> {
                                 operations = v;
+                                operationsLoaded = true;
                                 changed();
                             });
             repo.notice()
@@ -121,6 +124,7 @@ public abstract class OnlineFragment extends Fragment {
                                 getViewLifecycleOwner(),
                                 v -> {
                                     docs = v;
+                                    documentsLoaded = true;
                                     changed();
                                 });
                 repo.drafts(screen.lessonId)

@@ -21,9 +21,24 @@ import java.util.Set;
 
 /** Shared lesson view: teacher owns progress, student owns private context and reactions. */
 public final class LiveLessonFragment extends BaseFragment {
-    private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
-    private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
     private boolean pending;
+    private String reactionTopicId = "", lastReactionProgress = "";
+
+    @Override
+    public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        if (state != null) {
+            reactionTopicId = state.getString("reactionTopicId", "");
+            lastReactionProgress = state.getString("lastReactionProgress", "");
+        }
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString("reactionTopicId", reactionTopicId);
+        state.putString("lastReactionProgress", lastReactionProgress);
+    }
 
     @Nullable
     @Override
@@ -114,19 +129,25 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void renderTeacher(Models.Lesson lesson, Models.Topic current) {
-        int[] counts = new int[4];
-        Set<String> students = new HashSet<>();
-        for (Models.Reaction reaction : lesson.reactions)
-            if (safeEquals(reaction.visitId, lesson.currentVisitId)) {
-                for (int i = 0; i < TYPES.length; i++)
-                    if (TYPES[i].equals(reaction.type)) counts[i]++;
-                students.add(reaction.studentId);
+        List<Ui.ReactionPage> pages = new ArrayList<>();
+        String currentRoot = current == null ? "" : current.parentTopicId == null ? current.id : current.parentTopicId;
+        for (Models.Topic root : lesson.children(null)) {
+            Ui.ReactionPage page = new Ui.ReactionPage(root.id, lesson.topicLabel(root), root.id.equals(currentRoot));
+            for (Models.Reaction reaction : lesson.reactions) {
+                Models.Topic topic = lesson.topic(reaction.topicId);
+                if (topic == null || !lesson.isMember(reaction.studentId)
+                        || (!root.id.equals(topic.id) && !root.id.equals(topic.parentTopicId))) continue;
+                int index = Models.REACTION_TYPES.indexOf(reaction.type);
+                if (index >= 0) page.counts[index]++;
             }
-        ui.section(content, "지금 대주제의 익명 반응", "실제로 이 기기에서 전달한 반응만 집계해요.");
-        // 반응 유형별 건수를 막대로 비교한다. 가장 많은 유형이 막대 100%.
-        int most = 0;
-        for (int count : counts) most = Math.max(most, count);
-        for (int i = 0; i < LABELS.length; i++) ui.meter(content, LABELS[i], counts[i], most);
+            pages.add(page);
+        }
+        if (!currentRoot.isEmpty() && !currentRoot.equals(lastReactionProgress)) {
+            reactionTopicId = currentRoot;
+            lastReactionProgress = currentRoot;
+        }
+        ui.section(content, "대주제별 학생 반응", "좌우로 넘겨 확인해요. 재설명 반응도 해당 대주제에 누적돼요.");
+        ui.reactionPages(content, pages, reactionTopicId, id -> reactionTopicId = id);
         int submitted = 0;
         for (Models.Question question : lesson.questions)
             if (!"DRAFT".equals(question.status)) submitted++;
@@ -192,29 +213,30 @@ public final class LiveLessonFragment extends BaseFragment {
         ui.text(dock, accepting ? "익명 반응을 보내요. 선택한 반응을 다시 누르면 취소돼요."
                 : !lesson.questionsOpen ? "교수님이 질문·반응 접수를 마감했어요."
                 : "모든 대주제를 마쳐 반응 접수가 끝났어요.");
-        String[] labels = LABELS.clone();
-        for (Models.Reaction r : lesson.reactions)
-            if (vm.userId().equals(r.studentId) && safeEquals(r.visitId, lesson.currentVisitId))
-                for (int i = 0; i < TYPES.length; i++)
-                    if (TYPES[i].equals(r.type)) labels[i] = "✓ " + LABELS[i];
-        ui.pair(
-                dock,
-                labels[0],
-                () -> react(lesson, TYPES[0]),
-                labels[1],
-                () -> react(lesson, TYPES[1]));
-        ui.pair(
-                dock,
-                labels[2],
-                () -> react(lesson, TYPES[2]),
-                labels[3],
-                () -> react(lesson, TYPES[3]));
-        for (int i = 1; i < dock.getChildCount(); i++) {
-            View pair = dock.getChildAt(i);
-            View left = pair.findViewById(R.id.left), right = pair.findViewById(R.id.right);
-            if (left != null) left.setEnabled(accepting);
-            if (right != null) right.setEnabled(accepting);
+        Set<String> selected = new HashSet<>();
+        for (Models.Reaction reaction : lesson.reactions)
+            if (vm.userId().equals(reaction.studentId) && safeEquals(reaction.visitId, lesson.currentVisitId))
+                selected.add(reaction.type);
+        List<String> types = Models.REACTION_TYPES;
+        for (int i = 0; i + 1 < types.size(); i += 2) {
+            String left = types.get(i), right = types.get(i + 1);
+            ui.pair(
+                    dock,
+                    selectedReactionLabel(left, selected),
+                    () -> react(lesson, left),
+                    selectedReactionLabel(right, selected),
+                    () -> react(lesson, right));
+            View pair = dock.getChildAt(dock.getChildCount() - 1);
+            pair.findViewById(R.id.left).setEnabled(accepting);
+            pair.findViewById(R.id.right).setEnabled(accepting);
         }
+        ui.button(dock, selectedReactionLabel(Models.UNDERSTOOD, selected),
+                selected.contains(Models.UNDERSTOOD), () -> react(lesson, Models.UNDERSTOOD))
+                .setEnabled(accepting);
+    }
+
+    private String selectedReactionLabel(String type, Set<String> selected) {
+        return (selected.contains(type) ? "✓ " : "") + Ui.reactionLabel(type);
     }
 
     private boolean hasNextTopic(Models.Lesson lesson, Models.Topic current) {

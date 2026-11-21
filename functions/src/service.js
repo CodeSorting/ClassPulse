@@ -5,7 +5,7 @@ const {
     Timestamp,
     FieldValue
 } = require("firebase-admin/firestore");
-const TYPES = ["UNDERSTANDING", "SPEED", "TERM", "CALCULATION"];
+const TYPES = ["UNDERSTANDING", "SPEED", "TERM", "CALCULATION", "UNDERSTOOD"];
 class DomainError extends Error {
     constructor(reason, message, code = "failed-precondition") {
         super(message);
