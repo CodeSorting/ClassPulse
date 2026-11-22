@@ -289,6 +289,11 @@ test("progress CAS advances once; revisit preserves completion; end does not clo
     });
     assert.equal(state.session.status, "ENDED");
     assert.equal(state.session.questionsOpen, true);
+    assert.deepEqual(state.session.progress.completedTopicIds, f.topics.map(topic => topic.id));
+    assert.equal(state.session.progress.currentTopicId, null);
+    assert.equal(state.session.progress.currentVisitId, null);
+    assert.equal(state.session.progress.currentVisitStartedAt, null);
+    assert.equal(state.session.progress.resumeTopicId, null);
     await mutate(student, "submitQuestion", {
         sessionId: f.sid,
         id: op(),
@@ -302,6 +307,39 @@ test("progress CAS advances once; revisit preserves completion; end does not clo
         action: "END"
     }), "OWNER_REQUIRED");
 });
+test("ending a lesson completes only its active topic and preserves unfinished topics during a revisit", async () => {
+    for (const revisit of [false, true]) {
+        const f = await fixture();
+        await join(student, f);
+        let { session } = await start(f);
+        let version = 1;
+        if (revisit) {
+            await mutate(owner, "changeProgress", {
+                sessionId: f.sid, action: "COMPLETE_NEXT", expectedProgressVersion: version++
+            });
+            ({ session } = await mutate(owner, "changeProgress", {
+                sessionId: f.sid, action: "REVISIT", topicId: f.topics[0].id, expectedProgressVersion: version++
+            }));
+        }
+        const visitId = session.progress.currentVisitId;
+        const request = { sessionId: f.sid, action: "END", operationId: op(), expectedProgressVersion: version };
+        const ended = await invoke(owner, "changeProgress", request);
+        assert.deepEqual(await invoke(owner, "changeProgress", request), ended);
+        const state = await invoke(student, "getSessionBootstrap", { sessionId: f.sid });
+        assert.equal(state.session.status, "ENDED");
+        assert.deepEqual(state.session.progress.completedTopicIds, [f.topics[0].id]);
+        assert.equal(state.session.progress.currentTopicId, null);
+        assert.equal(state.session.progress.currentVisitId, null);
+        assert.equal(state.session.progress.currentVisitStartedAt, null);
+        assert.equal(state.session.progress.resumeTopicId, null);
+        assert.equal(state.session.questionsOpen, true);
+        assert.ok((await db.doc("sessions/" + f.sid + "/visits/" + visitId).get()).data().endedAt);
+        await expectReason(() => mutate(student, "submitReaction", {
+            sessionId: f.sid, topicId: f.topics[0].id, visitId, type: "UNDERSTOOD"
+        }), "STALE_VISIT");
+    }
+});
+
 test("subtopics are grouped in the outline and progress follows teachable topics", async () => {
     const f = { sid: op() };
     const parent = { id: op(), title: "조건부확률" };
@@ -357,6 +395,10 @@ test("subtopics are grouped in the outline and progress follows teachable topics
     ({ session } = await update("COMPLETE_NEXT", 4));
     assert.equal(session.progress.currentTopicId, standalone.id);
     ({ session } = await update("COMPLETE_NEXT", 5));
+    assert.equal(session.progress.currentVisitId, null);
+    assert.deepEqual(session.progress.completedTopicIds, [second.id, first.id, standalone.id]);
+    ({ session } = await update("END", 6));
+    assert.equal(session.progress.currentTopicId, null);
     assert.equal(session.progress.currentVisitId, null);
     assert.deepEqual(session.progress.completedTopicIds, [second.id, first.id, standalone.id]);
 });

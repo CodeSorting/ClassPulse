@@ -196,9 +196,42 @@ public class LessonRepositoryInstrumentedTest {
         assertNull(lesson(id).currentVisitId);
         ok(cb -> repo.endLesson(id, cb));
         assertEquals(Models.ENDED, lesson(id).status);
+        assertNull(lesson(id).currentTopicId);
+        assertNull(lesson(id).currentVisitId);
+        assertNull(lesson(id).resumeTopicId);
+        assertTrue(lesson(id).topic(topicC).completed);
         String after =
                 success(cb -> repo.submitQuestion(null, id, topicA, UID, "수업 종료 후 질문도 남깁니다", cb));
         assertEquals(Models.SUBMITTED, lesson(id).question(after).status);
+    }
+
+    @Test
+    public void endingLessonCompletesTheActiveTopicAndKeepsOtherTopicsUnfinished() {
+        for (boolean revisit : new boolean[] {false, true}) {
+            String id = create();
+            join(id);
+            ok(cb -> repo.startLesson(id, cb));
+            String first = lesson(id).currentTopicId;
+            if (revisit) {
+                ok(cb -> repo.completeTopic(id, cb));
+                ok(cb -> repo.revisitTopic(id, first, cb));
+            }
+            String visitId = lesson(id).currentVisitId;
+            ok(cb -> repo.endLesson(id, cb));
+            Models.Lesson ended = lesson(id);
+            assertEquals(Models.ENDED, ended.status);
+            assertNull(ended.currentTopicId);
+            assertNull(ended.currentVisitId);
+            assertNull(ended.resumeTopicId);
+            for (Models.Topic topic : ended.topics)
+                assertEquals(topic.id.equals(first), topic.completed);
+            for (Models.Visit visit : ended.visits)
+                if (visit.id.equals(visitId)) assertTrue(visit.endedAt > 0);
+            assertTrue(ended.questionsOpen);
+            ok(cb -> repo.endLesson(id, cb));
+            assertNull(lesson(id).currentTopicId);
+            assertTrue(lesson(id).topic(first).completed);
+        }
     }
 
     @Test

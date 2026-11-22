@@ -475,7 +475,13 @@ public final class LessonRepository {
                     LessonRow l = requireLesson(sessionId);
                     if (Models.ENDED.equals(l.status)) return null;
                     requireLive(l);
+                    if (l.currentVisitId != null) {
+                        TopicRow current = requireTopic(l.id, l.currentTopicId);
+                        current.completed = true;
+                        dao.updateTopic(current);
+                    }
                     closeVisit(l);
+                    l.currentTopicId = null;
                     l.resumeTopicId = null;
                     l.status = Models.ENDED;
                     dao.updateLesson(l);

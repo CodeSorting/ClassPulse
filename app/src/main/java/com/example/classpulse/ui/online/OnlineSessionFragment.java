@@ -60,7 +60,8 @@ public final class OnlineSessionFragment extends OnlineFragment {
         JSONObject p = s.optJSONObject("progress");
         if (p == null) p = new JSONObject();
         final JSONObject progress = p;
-        String currentTopic = p.isNull("currentTopicId") ? "" : p.optString("currentTopicId");
+        boolean ended = "ENDED".equals(s.optString("status"));
+        String currentTopic = ended || p.isNull("currentTopicId") ? "" : p.optString("currentTopicId");
         boolean childStep = !item("TOPIC", currentTopic).isNull("parentTopicId");
         List<OnlineDatabase.Document> outline = topics();
         Map<String, List<OnlineDatabase.Document>> children = new LinkedHashMap<>();
@@ -78,8 +79,8 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                 ? "수업 종료 · 질문과 답변을 이어가요"
                                 : currentTopic.isEmpty() ? "모든 주제를 마쳤어요" : "지금: " + topicTitle(currentTopic));
         showNotice();
-        renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
-        boolean ended = "ENDED".equals(s.optString("status"));
+        if (!ended)
+            renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
         if (teacher || ended) {
             ui.button(shell.content, teacher ? "녹음·수업 자료" : "수업 원문·복습 자료",
                     false, () -> open("online_material"));

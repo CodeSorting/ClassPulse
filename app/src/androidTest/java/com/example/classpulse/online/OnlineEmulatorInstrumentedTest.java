@@ -462,6 +462,86 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void teacherEndsLastTopicAndTheEndedOutlineStaysHiddenAfterRecreation() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid"), last = fixture.optString("second");
+        join(teacher, student, sid);
+        watchers.add(student.repo.watchLesson(sid));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
+        showSession(teacher, sid);
+        await(() -> hasText("수업 목차"));
+        onView(withText("수업 종료")).perform(scrollTo(), click());
+        onView(withText("종료")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+        await(() -> "ENDED".equals(cached(teacher, sid).optString("status"))
+                && "ENDED".equals(cached(student, sid).optString("status")));
+        assertEndedSessionScreen();
+        JSONObject progress = cached(student, sid).getJSONObject("progress");
+        assertTrue(OnlineJson.contains(progress.getJSONArray("completedTopicIds"), last));
+        assertTrue(progress.isNull("currentTopicId"));
+        assertTrue(progress.isNull("currentVisitId"));
+        assertTrue(progress.isNull("resumeTopicId"));
+        scenario.recreate();
+        await(() -> hasText("온라인 통계학 수업"));
+        assertEndedSessionScreen();
+        capture("online-teacher-ended-no-outline");
+    }
+
+    @Test
+    public void studentSeesEndedStateWithoutOutlineAndCanStillSubmitAQuestion() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid"), first = fixture.optString("first");
+        join(teacher, student, sid);
+        watchers.add(teacher.repo.watchLesson(sid));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        showSession(student, sid);
+        await(() -> hasEnabledReaction("이해됐어요"));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "END", "expectedProgressVersion", 1));
+        await(() -> "ENDED".equals(cached(student, sid).optString("status")));
+        assertEndedSessionScreen();
+        onView(withText("이해됐어요")).check(doesNotExist());
+        JSONObject progress = cached(student, sid).getJSONObject("progress");
+        assertTrue(OnlineJson.contains(progress.getJSONArray("completedTopicIds"), first));
+        assertFalse(OnlineJson.contains(progress.getJSONArray("completedTopicIds"), fixture.optString("second")));
+        scenario.recreate();
+        await(() -> hasText("온라인 통계학 수업"));
+        assertEndedSessionScreen();
+        capture("online-student-ended-no-outline");
+        onView(withText("질문하기")).perform(scrollTo(), click());
+        onView(withContentDescription("질문 내용 · 1,000자 이내"))
+                .perform(scrollTo(), click(), replaceText("종료 후에도 첫 주제에 질문해요"), closeSoftKeyboard());
+        AtomicReference<String> question = new AtomicReference<>();
+        scenario.onActivity(activity -> question.set(ScreenContext.from(activity.getSupportFragmentManager()
+                .findFragmentById(R.id.main).getArguments()).questionId));
+        onView(withText("질문 제출")).perform(click());
+        await(() -> teacher.db.store().document(sid, "QUESTION", question.get()) != null);
+        JSONObject submitted = OnlineJson.object(teacher.db.store().document(sid, "QUESTION", question.get()).json);
+        assertEquals(first, submitted.optString("topicId"));
+        assertEquals("종료 후에도 첫 주제에 질문해요", submitted.optString("text"));
+        assertEndedSessionScreen();
+    }
+
+    private void assertEndedSessionScreen() throws Exception {
+        await(() -> {
+            try {
+                onView(withText("수업 종료 · 질문과 답변을 이어가요")).perform(scrollTo());
+                return true;
+            } catch (androidx.test.espresso.NoMatchingViewException | AssertionError error) {
+                return false;
+            }
+        });
+        onView(withText("수업 목차")).check(doesNotExist());
+        onView(withText("진행 중")).check(doesNotExist());
+        onView(withText("마지막 대주제 완료")).check(doesNotExist());
+    }
+
+    @Test
     public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllReactions()
             throws Exception {
         Client teacher = client(), student = client();

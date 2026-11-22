@@ -542,7 +542,11 @@ function createService(db, {
                 if (!next) progress.currentTopicId = target;
             }
             if (action === "END") {
+                if (progress.currentVisitId && progress.currentTopicId
+                        && !progress.completedTopicIds.includes(progress.currentTopicId))
+                    progress.completedTopicIds.push(progress.currentTopicId);
                 status = "ENDED";
+                progress.currentTopicId = null;
                 progress.resumeTopicId = null;
             }
             if (oldVisit?.exists) tx.set(oldVisit.ref, bump(oldVisit.data(), now, {
