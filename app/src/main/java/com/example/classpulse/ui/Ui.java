@@ -53,6 +53,18 @@ public final class Ui {
         view.setVisibility(value == null || value.trim().isEmpty() ? View.GONE : View.VISIBLE);
     }
 
+    public void lessonHeader(LinearLayout parent, String title, String state) {
+        BlockLessonHeaderBinding header = BlockLessonHeaderBinding.inflate(inflater, parent, false);
+        bindLessonHeader(header, title, state);
+        add(parent, header.getRoot());
+    }
+
+    public static void bindLessonHeader(BlockLessonHeaderBinding header, String title, String state) {
+        header.studentCourseTitle.setText(title);
+        header.studentCourseState.setText(Models.LIVE.equals(state) ? "● 수업 중"
+                : "ENDED".equals(state) ? "수업 종료" : "시작 전");
+    }
+
     public TextView heading(LinearLayout parent, String title, String subtitle) {
         BlockHeadingBinding b = BlockHeadingBinding.inflate(inflater, parent, false);
         b.title.setText(title);
@@ -239,10 +251,11 @@ public final class Ui {
     /** 타일형 익명 반응의 아이콘. 해당하지 않으면 0을 돌려준다. */
     public static int reactionIconRes(String label) {
         if (label == null) return 0;
+        if (label.contains("이해됐")) return R.drawable.ic_live_thumb_up;
         if (label.contains("이해가 안")) return R.drawable.ic_cp_confused;
-        if (label.contains("너무 빨라")) return R.drawable.ic_cp_fast;
-        if (label.contains("용어가 어려")) return R.drawable.ic_cp_term;
-        if (label.contains("계산을 놓쳤")) return R.drawable.ic_cp_calc;
+        if (label.contains("너무 빨라")) return R.drawable.ic_live_speed;
+        if (label.contains("용어가 어려")) return R.drawable.ic_live_menu_book;
+        if (label.contains("계산을 놓쳤")) return R.drawable.ic_live_calculate;
         return 0;
     }
 
@@ -438,8 +451,10 @@ public final class Ui {
                     most = Math.max(most, count);
                 }
                 section(body, page.title, (page.current ? "현재 대주제 · " : "") + "반응 " + total + "건");
-                for (int i = 0; i < Models.REACTION_TYPES.size(); i++)
-                    meter(body, reactionLabel(Models.REACTION_TYPES.get(i)), page.counts[i], most);
+                // Match the student's quick-reaction order without changing stored count indexes.
+                for (String type : new String[]{Models.UNDERSTOOD, Models.UNDERSTANDING,
+                        Models.SPEED, Models.TERM, Models.CALCULATION})
+                    meter(body, reactionLabel(type), page.counts[Models.REACTION_TYPES.indexOf(type)], most);
                 container.addView(body);
                 return body;
             }

@@ -12,6 +12,7 @@ import com.example.classpulse.domain.Models;
 import com.example.classpulse.ui.BaseFragment;
 import com.example.classpulse.ui.Ui;
 import com.example.classpulse.ui.StudentLessonView;
+import com.example.classpulse.ui.LessonOutlineView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
@@ -95,6 +96,10 @@ public final class LiveLessonFragment extends BaseFragment {
             return;
         }
         boolean teacher = "TEACHER".equals(vm.role());
+        if (teacher && !"ENDED".equals(lesson.status)) {
+            content.setPadding(dp(12), dp(10), dp(12), dp(16));
+            dock.setPadding(dp(12), dp(8), dp(12), dp(10));
+        }
         if (teacher && !vm.userId().equals(lesson.teacherId)) {
             ui.note(content, "이 수업의 교수자 계정으로 확인해 주세요.");
             return;
@@ -111,7 +116,7 @@ public final class LiveLessonFragment extends BaseFragment {
             return;
         }
         if ("READY".equals(lesson.status)) {
-            ui.heading(content, "곧 수업이 시작돼요", lesson.title);
+            ui.lessonHeader(content, lesson.title, lesson.status);
             showTopics(lesson, teacher);
             ui.note(
                     content,
@@ -124,14 +129,10 @@ public final class LiveLessonFragment extends BaseFragment {
             return;
         }
         Models.Topic current = lesson.currentVisitId == null ? null : lesson.currentTopic();
-        ui.heading(
-                content,
-                current == null ? "모든 주제를 마쳤어요" : lesson.topicLabel(current),
-                lesson.resumeTopicId == null || lesson.resumeTopicId.isEmpty()
-                        ? current != null && current.parentTopicId != null
-                                ? lesson.topicPath(current) : "현재 수업 진도"
-                        : "완료한 주제 재설명 중");
-        if (teacher) ui.note(content, "녹음·음성 변환은 아직 연동되지 않았어요. 현재는 수업 진도와 반응·질문을 이 기기에 저장합니다.");
+        ui.lessonHeader(content, lesson.title, lesson.status);
+        if (lesson.resumeTopicId != null && !lesson.resumeTopicId.isEmpty())
+            ui.note(content, "완료한 주제 재설명 중");
+        else if (current == null) ui.note(content, "모든 주제를 마쳤어요");
         showTopics(lesson, teacher);
         if (teacher) renderTeacher(lesson, current);
         else renderStudentLesson(lesson);
@@ -171,9 +172,9 @@ public final class LiveLessonFragment extends BaseFragment {
             studentView.attach(content, dock);
             studentLayout = true;
         }
-        List<StudentLessonView.Topic> outline = new ArrayList<>();
+        List<LessonOutlineView.Topic> outline = new ArrayList<>();
         for (Models.Topic topic : lesson.topics)
-            outline.add(new StudentLessonView.Topic(topic.id, topic.parentTopicId, topic.title, topic.completed,
+            outline.add(new LessonOutlineView.Topic(topic.id, topic.parentTopicId, topic.title, topic.completed,
                     lesson.currentVisitId != null && topic.id.equals(lesson.currentTopicId)));
         Set<String> selected = new HashSet<>();
         for (Models.Reaction reaction : lesson.reactions)
@@ -196,24 +197,13 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void showTopics(Models.Lesson lesson, boolean teacher) {
-        ui.section(content, "수업 목차", null);
-        for (Models.Topic topic : lesson.topics) {
-            List<Models.Topic> children = lesson.children(topic.id);
-            boolean active = Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
-                    && topic.id.equals(lesson.currentTopicId);
-            int completed = 0;
-            for (Models.Topic child : children) if (child.completed) completed++;
-            String status = children.isEmpty()
-                    ? active ? "진행 중" : topic.completed ? "완료" : "예정"
-                    : completed == children.size() ? "완료" : "소주제 " + completed + "/" + children.size();
-            ui.topic(
-                    content,
-                    lesson.topicLabel(topic),
-                    status,
-                    active,
-                    topic.parentTopicId != null,
-                    teacher ? null : () -> newQuestion(topic.id));
-        }
+        List<LessonOutlineView.Topic> outline = new ArrayList<>();
+        for (Models.Topic topic : lesson.topics)
+            outline.add(new LessonOutlineView.Topic(topic.id, topic.parentTopicId, topic.title, topic.completed,
+                    Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
+                            && topic.id.equals(lesson.currentTopicId)));
+        LessonOutlineView.add(content, outline, teacher && Models.LIVE.equals(lesson.status)
+                ? id -> mutate(cb -> vm.repo.revisitTopic(lesson.id, id, cb)) : null);
     }
 
     private void renderTeacher(Models.Lesson lesson, Models.Topic current) {

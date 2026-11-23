@@ -2,7 +2,6 @@ package com.example.classpulse.ui;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
-import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,7 +23,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.example.classpulse.R;
 import com.example.classpulse.databinding.BlockStudentDockBinding;
 import com.example.classpulse.databinding.BlockStudentLessonBinding;
-import com.example.classpulse.databinding.BlockStudentTopicRowBinding;
+import com.example.classpulse.ui.LessonOutlineView.Topic;
 import com.example.classpulse.domain.Models;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
@@ -45,19 +44,6 @@ public final class StudentLessonView {
         void save(String id, String topic, String text, boolean submit, Result result);
         void edit(String id, String topic);
         void error(String message);
-    }
-
-    public static final class Topic {
-        public final String id, parentId, title;
-        public final boolean completed, current;
-
-        public Topic(String id, String parentId, String title, boolean completed, boolean current) {
-            this.id = id;
-            this.parentId = parentId;
-            this.title = title;
-            this.completed = completed;
-            this.current = current;
-        }
     }
 
     private final Context context;
@@ -149,8 +135,7 @@ public final class StudentLessonView {
             else if (!roots.isEmpty()) topic = roots.get(0).id;
         }
         accepting = questionsOpen;
-        body.studentCourseTitle.setText(title);
-        body.studentCourseState.setText(Models.LIVE.equals(state) ? "● 수업 중" : "시작 전");
+        Ui.bindLessonHeader(body.lessonHeader, title, state);
         renderOutline();
         bindReaction(dock.studentReactionUnderstood, Models.UNDERSTOOD, selected, pending, reactionsOpen);
         bindReaction(dock.studentReactionUnderstanding, Models.UNDERSTANDING, selected, pending, reactionsOpen);
@@ -165,45 +150,7 @@ public final class StudentLessonView {
     }
 
     private void renderOutline() {
-        body.studentOutline.removeAllViews();
-        for (int index = 0; index < roots.size(); index++) {
-            Topic root = roots.get(index);
-            List<Topic> children = new ArrayList<>();
-            for (Topic value : topics) if (root.id.equals(value.parentId)) children.add(value);
-            boolean completed = root.completed;
-            if (!children.isEmpty()) {
-                completed = true;
-                for (Topic child : children) completed &= child.completed;
-            }
-            if (index > 0) {
-                View divider = new View(context);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-                params.setMargins(0, dp(10), 0, dp(8));
-                divider.setBackgroundColor(color(R.color.cp_line));
-                body.studentOutline.addView(divider, params);
-            }
-            topicRow((index + 1) + ". " + root.title, false, completed, root.current && children.isEmpty());
-            for (int sub = 0; sub < children.size(); sub++) {
-                Topic child = children.get(sub);
-                topicRow((index + 1) + "." + (sub + 1) + " " + child.title,
-                        true, child.completed, child.current);
-            }
-        }
-    }
-
-    private void topicRow(String title, boolean child, boolean completed, boolean current) {
-        BlockStudentTopicRowBinding row = BlockStudentTopicRowBinding.inflate(inflater, body.studentOutline, false);
-        row.studentTopicTitle.setText(title);
-        row.studentTopicTitle.setPadding(current ? dp(8) : 0, dp(8), 0, dp(8));
-        row.studentTopicTitle.setTypeface(null, !child || current ? Typeface.BOLD : Typeface.NORMAL);
-        row.studentTopicBranch.setVisibility(child ? View.VISIBLE : View.GONE);
-        row.studentTopicDone.setVisibility(completed ? View.VISIBLE : View.GONE);
-        row.studentTopicActiveLine.setVisibility(current ? View.VISIBLE : View.INVISIBLE);
-        row.studentTopicState.setVisibility(current ? View.VISIBLE : View.GONE);
-        row.studentTopicBody.setBackgroundResource(current ? R.drawable.bg_student_topic_active : 0);
-        row.getRoot().setContentDescription(title + (current ? ", 진행 중" : completed ? ", 완료" : ", 예정"));
-        body.studentOutline.addView(row.getRoot());
+        LessonOutlineView.render(body.lessonOutlineCard, topics, null);
     }
 
     private void bindReaction(MaterialButton button, String type, Set<String> selected,

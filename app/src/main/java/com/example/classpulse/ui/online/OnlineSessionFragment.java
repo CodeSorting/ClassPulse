@@ -9,6 +9,7 @@ import com.example.classpulse.domain.Models;
 import com.example.classpulse.online.*;
 import com.example.classpulse.ui.Ui;
 import com.example.classpulse.ui.StudentLessonView;
+import com.example.classpulse.ui.LessonOutlineView;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -117,17 +118,18 @@ public final class OnlineSessionFragment extends OnlineFragment {
             if (!entry.isNull("parentTopicId"))
                 children.computeIfAbsent(entry.optString("parentTopicId"), key -> new ArrayList<>()).add(topic);
         }
-        ui.heading(
-                shell.content,
-                s.optString("title"),
-                "READY".equals(s.optString("status"))
-                        ? "시작을 기다리고 있어요"
-                        : "ENDED".equals(s.optString("status"))
-                                ? "수업 종료 · 질문과 답변을 이어가요"
-                                : currentTopic.isEmpty() ? "모든 주제를 마쳤어요" : "지금: " + topicTitle(currentTopic));
+        ui.lessonHeader(shell.content, s.optString("title"), s.optString("status"));
+        if (!ended) {
+            shell.demoBanner.setVisibility(View.GONE);
+            shell.content.setPadding(dp(12), dp(10), dp(12), dp(16));
+            shell.dock.setPadding(dp(12), dp(8), dp(12), dp(10));
+        }
+        if (ended) ui.note(shell.content, "수업 종료 · 질문과 답변을 이어가요");
+        else if ("LIVE".equals(s.optString("status")) && currentTopic.isEmpty())
+            ui.note(shell.content, "모든 주제를 마쳤어요");
         showNotice();
         if (!ended)
-            renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
+            renderOutline(outline, progress, teacher && "LIVE".equals(s.optString("status")));
         if (ended) {
             reviewHub(teacher);
         } else if (teacher) {
@@ -315,10 +317,10 @@ public final class OnlineSessionFragment extends OnlineFragment {
         String visit = progress.optString("currentVisitId", "");
         String current = progress.optString("currentTopicId", "");
         boolean live = "LIVE".equals(session.optString("status")) && !progress.isNull("currentVisitId") && !visit.isEmpty();
-        List<StudentLessonView.Topic> outline = new ArrayList<>();
+        List<LessonOutlineView.Topic> outline = new ArrayList<>();
         for (OnlineDatabase.Document document : topics()) {
             JSONObject entry = OnlineJson.object(document.json);
-            outline.add(new StudentLessonView.Topic(document.id,
+            outline.add(new LessonOutlineView.Topic(document.id,
                     entry.isNull("parentTopicId") ? null : entry.optString("parentTopicId"),
                     entry.optString("title"), OnlineJson.contains(progress.optJSONArray("completedTopicIds"), document.id),
                     live && document.id.equals(current)));
@@ -424,45 +426,18 @@ public final class OnlineSessionFragment extends OnlineFragment {
         return false;
     }
 
-    private void renderOutline(List<OnlineDatabase.Document> outline,
-                               Map<String, List<OnlineDatabase.Document>> children,
-                               JSONObject progress, boolean canRevisit) {
+    private void renderOutline(List<OnlineDatabase.Document> outline, JSONObject progress, boolean canRevisit) {
         if (outline.isEmpty()) return;
-        ui.section(shell.content, "수업 목차", null);
-        String current = progress.optString("currentTopicId");
-        JSONArray completed = progress.optJSONArray("completedTopicIds");
-        int groupNumber = 0;
-        for (OnlineDatabase.Document group : outline) {
-            JSONObject entry = OnlineJson.object(group.json);
-            if (!entry.isNull("parentTopicId")) continue;
-            groupNumber++;
-            List<OnlineDatabase.Document> groupChildren = children.get(group.id);
-            if (groupChildren == null) {
-                renderTopic(group, groupNumber + ".", false, current, completed, canRevisit);
-                continue;
-            }
-            int done = 0;
-            boolean active = false;
-            for (OnlineDatabase.Document child : groupChildren) {
-                if (OnlineJson.contains(completed, child.id)) done++;
-                if (current.equals(child.id)) active = true;
-            }
-            String groupStatus = done == groupChildren.size() ? "완료" : done + "/" + groupChildren.size() + " 완료";
-            ui.topic(shell.content, groupNumber + ". " + entry.optString("title"),
-                    active ? "진행 중 · " + groupStatus : groupStatus, active, null);
-            for (int i = 0; i < groupChildren.size(); i++)
-                renderTopic(groupChildren.get(i), groupNumber + "." + (i + 1),
-                        true, current, completed, canRevisit);
+        List<LessonOutlineView.Topic> topics = new ArrayList<>();
+        String current = progress.isNull("currentVisitId") ? "" : progress.optString("currentTopicId");
+        for (OnlineDatabase.Document document : outline) {
+            JSONObject entry = OnlineJson.object(document.json);
+            topics.add(new LessonOutlineView.Topic(document.id,
+                    entry.isNull("parentTopicId") ? null : entry.optString("parentTopicId"),
+                    entry.optString("title"), OnlineJson.contains(progress.optJSONArray("completedTopicIds"), document.id),
+                    document.id.equals(current)));
         }
-    }
-
-    private void renderTopic(OnlineDatabase.Document topic, String number, boolean child,
-                             String current, JSONArray completed, boolean canRevisit) {
-        boolean done = OnlineJson.contains(completed, topic.id);
-        boolean active = current.equals(topic.id);
-        ui.topic(shell.content, number + " " + OnlineJson.object(topic.json).optString("title"),
-                active ? "진행 중" : done ? "완료" : "예정", active, child,
-                canRevisit && done && !active ? () -> progress("REVISIT", topic.id) : null);
+        LessonOutlineView.add(shell.content, topics, canRevisit ? id -> progress("REVISIT", id) : null);
     }
 
     private boolean hasNextTopic(JSONObject progress, List<OnlineDatabase.Document> outline,

@@ -186,4 +186,67 @@ public class LiveParticipationInstrumentedTest {
         onView(withId(R.id.student_question_input)).check(matches(isDisplayed()));
         onView(withContentDescription("질문 대주제 1, 신뢰적 데이터 전송")).check(doesNotExist());
     }
+
+    private List<String> outlineState() {
+        AtomicReference<List<String>> result = new AtomicReference<>();
+        scenario.onActivity(a -> {
+            android.widget.LinearLayout rows = a.findViewById(R.id.student_outline);
+            List<String> state = new ArrayList<>();
+            if (rows != null) for (int i = 0; i < rows.getChildCount(); i++) {
+                View row = rows.getChildAt(i);
+                android.widget.TextView title = row.findViewById(R.id.student_topic_title);
+                if (title == null) continue;
+                state.add(title.getText() + "|" + (row.findViewById(R.id.student_topic_done).getVisibility() == View.VISIBLE)
+                        + "|" + (row.findViewById(R.id.student_topic_state).getVisibility() == View.VISIBLE));
+            }
+            result.set(state);
+        });
+        return result.get();
+    }
+
+    @Test public void teacherSharesStudentOutlineAndReactionIcons() throws Exception {
+        List<String> student = outlineState();
+        assertEquals(9, student.size());
+        assertTrue(student.contains("1. 신뢰적 데이터 전송|true|false"));
+        assertTrue(student.contains("2.1 Go-Back-N|false|true"));
+        capture("shared-outline-student");
+        scenario.onActivity(a -> {
+            a.enterDemo("TEACHER");
+            a.navigate("live", ScreenContext.empty().forLesson(sid));
+            a.getSupportFragmentManager().executePendingTransactions();
+        });
+        await(() -> student.equals(outlineState()));
+        onView(withText("오늘의 수업 목차")).check(matches(isDisplayed()));
+        onView(withId(R.id.student_course_title)).check(matches(withText("컴퓨터 네트워크")));
+        onView(withId(R.id.student_course_title)).perform(scrollTo());
+        capture("shared-outline-teacher");
+        scenario.recreate();
+        await(() -> student.equals(outlineState()));
+
+        onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        for (String label : new String[]{"이해됐어요", "이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"}) {
+            onView(org.hamcrest.Matchers.allOf(withId(R.id.icon), hasSibling(withText(label)), isDisplayed()))
+                    .check((view, error) -> {
+                        if (error != null) throw error;
+                        assertNotNull("Reaction icon must be present", ((android.widget.ImageView) view).getDrawable());
+                    });
+        }
+        capture("shared-teacher-reaction-icons");
+        onView(withContentDescription("1.1 오류 검출, 완료, 눌러서 재설명")).perform(scrollTo(), click());
+        await(() -> outline.get(1).id.equals(snapshot().currentTopicId));
+        assertTrue(snapshot().topic(outline.get(1).id).completed);
+        await(() -> outlineState().contains("1.1 오류 검출|true|true"));
+        onView(withText("원래 진행 주제로 돌아가기")).perform(click());
+        await(() -> outline.get(4).id.equals(snapshot().currentTopicId));
+        List<String> teacher = outlineState();
+        scenario.onActivity(a -> {
+            a.enterDemo("STUDENT");
+            a.navigate("live", ScreenContext.empty().forLesson(sid));
+            a.getSupportFragmentManager().executePendingTransactions();
+        });
+        await(() -> teacher.equals(outlineState()));
+        onView(withContentDescription("1.1 오류 검출, 완료, 눌러서 재설명")).check(doesNotExist());
+        onView(withId(R.id.student_reaction_understood)).check(matches(isDisplayed()));
+    }
+
 }

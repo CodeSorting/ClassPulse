@@ -278,7 +278,16 @@ public class OnlineEmulatorInstrumentedTest {
         assertEquals(mainId, topics.getJSONObject(2).getString("parentTopicId"));
         String removedId = topics.getJSONObject(2).getString("id");
         await(() -> teacher.db.store().document(sid.get(), "TOPIC", removedId) != null);
-        onView(withText("목차 편집")).perform(scrollTo(), click());
+        clickStableText("목차 편집");
+        await(() -> {
+            try {
+                onView(withContentDescription("1.2 소주제 더보기"))
+                        .check(matches(withEffectiveVisibility(Visibility.VISIBLE)));
+                return true;
+            } catch (androidx.test.espresso.NoMatchingViewException | AssertionError error) {
+                return false;
+            }
+        });
         onView(withContentDescription("1.2 소주제 더보기")).perform(scrollTo(), click());
         onView(withText("소주제 삭제")).perform(click());
         onView(withText("삭제")).perform(click());
@@ -466,7 +475,7 @@ public class OnlineEmulatorInstrumentedTest {
         mutate(teacher, "changeProgress", OnlineJson.values(
                 "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 1));
         showSession(teacher, sid);
-        await(() -> hasText("수업 목차"));
+        await(() -> hasText("오늘의 수업 목차"));
         onView(withText("수업 종료")).perform(scrollTo(), click());
         onView(withText("종료")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
         await(() -> "ENDED".equals(cached(teacher, sid).optString("status"))
@@ -529,7 +538,7 @@ public class OnlineEmulatorInstrumentedTest {
                 return false;
             }
         });
-        onView(withText("수업 목차")).check(doesNotExist());
+        onView(withText("오늘의 수업 목차")).check(doesNotExist());
         onView(withText("진행 중")).check(doesNotExist());
         onView(withText("마지막 대주제 완료")).check(doesNotExist());
     }
@@ -701,10 +710,16 @@ public class OnlineEmulatorInstrumentedTest {
                 && teacher.db.store().document(sid, "STATS", "topic_" + second) != null
                 && teacher.db.store().document(sid, "STATS", "topic_" + next) != null);
         onView(withId(R.id.reaction_pager)).perform(scrollTo());
+        onView(org.hamcrest.Matchers.allOf(withId(R.id.icon), hasSibling(withText("이해됐어요")), isDisplayed()))
+                .check((view, error) -> {
+                    if (error != null) throw error;
+                    assertNotNull(((android.widget.ImageView) view).getDrawable());
+                });
         onView(withText("2 / 3")).check(matches(isDisplayed()));
         assertReactionCount("이해가 안 돼요", "0건");
         assertReactionCount("이해됐어요", "0건");
         assertReactionCount("너무 빨라요", "1건");
+        awaitStablePager();
         onView(withId(R.id.reaction_pager)).perform(swipeRight());
         onView(withText("1 / 3")).check(matches(isDisplayed()));
         assertReactionCount("이해가 안 돼요", "1건");
@@ -721,6 +736,7 @@ public class OnlineEmulatorInstrumentedTest {
         scenario.recreate();
         onView(withId(R.id.reaction_pager)).perform(scrollTo());
         onView(withText("1 / 3")).check(matches(isDisplayed()));
+        awaitStablePager();
         onView(withId(R.id.reaction_pager)).perform(swipeLeft());
         assertReactionCount("계산을 놓쳤어요", "1건");
         onView(withContentDescription("다음 대주제 반응")).perform(click());
@@ -729,9 +745,9 @@ public class OnlineEmulatorInstrumentedTest {
         onView(withContentDescription("다음 대주제 반응")).check(matches(not(isEnabled())));
         onView(withContentDescription("이전 대주제 반응")).perform(click());
 
-        JSONObject revisited = mutate(teacher, "changeProgress", OnlineJson.values(
-                "sessionId", sid, "action", "REVISIT", "topicId", first, "expectedProgressVersion", 3));
-        String revisit = revisited.getJSONObject("session").getJSONObject("progress").getString("currentVisitId");
+        clickStableText("1.1 확률의 정의");
+        await(() -> first.equals(cached(teacher, sid).getJSONObject("progress").optString("currentTopicId")));
+        String revisit = cached(teacher, sid).getJSONObject("progress").getString("currentVisitId");
         mutate(student, "submitReaction", OnlineJson.values("sessionId", sid,
                 "topicId", first, "visitId", revisit, "type", "UNDERSTANDING"));
         await(() -> OnlineJson.object(teacher.db.store().document(sid, "STATS", "topic_" + first).json)
@@ -750,6 +766,23 @@ public class OnlineEmulatorInstrumentedTest {
         assertNull(student.db.store().document(sid, "STATS", "summary"));
         assertNull(student.db.store().document(sid, "STATS", "topic_" + first));
         capture("teacher-major-topic-reactions");
+    }
+
+    private void awaitStablePager() throws Exception {
+        AtomicReference<android.view.View> previous = new AtomicReference<>();
+        AtomicLong since = new AtomicLong();
+        await(() -> {
+            AtomicReference<android.view.View> current = new AtomicReference<>();
+            onView(withId(R.id.reaction_pager)).check((view, error) -> {
+                if (error != null) throw error;
+                current.set(view);
+            });
+            if (previous.getAndSet(current.get()) != current.get()) {
+                since.set(android.os.SystemClock.uptimeMillis());
+                return false;
+            }
+            return android.os.SystemClock.uptimeMillis() - since.get() >= 500;
+        });
     }
 
     private void assertReactionCount(String label, String count) throws Exception {
