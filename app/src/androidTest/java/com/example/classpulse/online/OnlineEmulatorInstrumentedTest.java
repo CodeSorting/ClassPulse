@@ -735,6 +735,65 @@ public class OnlineEmulatorInstrumentedTest {
         });
     }
 
+    @Test
+    public void studentReferenceLayoutKeepsQuestionTopicAndTextWhileProgressChanges() throws Exception {
+        Client teacher = client(), student = client();
+        String sid = OnlineJson.id(), root1 = OnlineJson.id(), root2 = OnlineJson.id(), root3 = OnlineJson.id();
+        JSONArray topics = new JSONArray()
+                .put(OnlineJson.values("id", root1, "title", "신뢰적 데이터 전송"))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "오류 검출", "parentTopicId", root1))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "재전송과 타이머", "parentTopicId", root1))
+                .put(OnlineJson.values("id", root2, "title", "파이프라인 프로토콜"))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "Go-Back-N", "parentTopicId", root2))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "Selective Repeat", "parentTopicId", root2))
+                .put(OnlineJson.values("id", root3, "title", "TCP 혼잡 제어"))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "혼잡 윈도", "parentTopicId", root3))
+                .put(OnlineJson.values("id", OnlineJson.id(), "title", "혼잡 제어 알고리즘", "parentTopicId", root3));
+        mutate(teacher, "createSession", OnlineJson.values(
+                "sessionId", sid, "title", "컴퓨터 네트워크", "description", "", "topics", topics));
+        join(teacher, student, sid);
+        watchers.add(teacher.repo.watchLesson(sid));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        for (int version = 1; version <= 2; version++)
+            mutate(teacher, "changeProgress", OnlineJson.values(
+                    "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", version));
+        showSession(student, sid);
+        await(() -> hasEnabledReaction("이해됐어요"));
+        onView(withId(R.id.student_question_caption))
+                .check(matches(withText("질문할 대주제 · 2. 파이프라인 프로토콜")));
+        onView(withText("이해됐어요")).perform(click());
+        await(() -> teacherReactionCount(teacher, sid) == 1 && hasEnabledReaction("✓ 이해됐어요"));
+        capture("student-reference-default");
+        onView(withId(R.id.student_question_topic)).perform(click());
+        capture("student-reference-topic-selector");
+        onView(withContentDescription("질문 대주제 1, 신뢰적 데이터 전송")).perform(click());
+        onView(withId(R.id.student_question_input))
+                .perform(click(), replaceText("오류 검출과 재전송의 관계가 궁금해요"), closeSoftKeyboard());
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "COMPLETE_NEXT", "expectedProgressVersion", 3));
+        await(() -> cached(student, sid).optLong("progressVersion") == 4);
+        onView(withId(R.id.student_question_input))
+                .check(matches(withText("오류 검출과 재전송의 관계가 궁금해요")));
+        onView(withId(R.id.student_question_caption))
+                .check(matches(withText("질문할 대주제 · 1. 신뢰적 데이터 전송")));
+        scenario.recreate();
+        await(() -> hasEnabledReaction("이해됐어요"));
+        onView(withId(R.id.student_question_input))
+                .check(matches(withText("오류 검출과 재전송의 관계가 궁금해요")));
+        onView(withId(R.id.student_question_send)).perform(click());
+        await(() -> {
+            OnlineDatabase.Document stats = teacher.db.store().document(sid, "STATS", "summary");
+            return stats != null && OnlineJson.object(stats.json).optInt("submittedQuestionCount") == 1;
+        });
+        QuerySnapshot questions = Tasks.await(teacher.firestore.collection("sessions/" + sid + "/questions")
+                .get(Source.SERVER), 10, TimeUnit.SECONDS);
+        assertEquals(1, questions.size());
+        assertEquals(root1, questions.getDocuments().get(0).getString("topicId"));
+        onView(withId(R.id.student_question_input)).check(matches(withText("")));
+        onView(withId(R.id.student_question_send)).check(matches(not(isEnabled())));
+    }
+
     private boolean hasEnabledReaction(String label) {
         try {
             onView(withText(label)).check(matches(org.hamcrest.Matchers.allOf(isDisplayed(), isEnabled())));
@@ -776,13 +835,13 @@ public class OnlineEmulatorInstrumentedTest {
         scenario.onActivity(a -> a.openOnline("online_home"));
         scenario.onActivity(
                 a -> a.navigate("online_session", ScreenContext.empty().forLesson(sid)));
-        await(() -> cached(student, sid).optString("status").equals("LIVE"));
+        await(() -> cached(student, sid).optString("status").equals("LIVE") && hasEnabledReaction("이해됐어요"));
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         for (String label : new String[] {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요", "이해됐어요"})
             onView(withText(label)).check(matches(isDisplayed()));
         capture("online-student-live-emulator");
         onView(withText("용어가 어려워요")).perform(click());
-        onView(withText("이 대주제에 질문하기")).perform(scrollTo(), click());
+        onView(withText("자세히 작성")).perform(click());
         onView(withContentDescription("질문 내용 · 1,000자 이내"))
                 .perform(scrollTo(), click(), replaceText("화면에서 작성한 온라인 질문"), closeSoftKeyboard());
         scenario.recreate();
@@ -808,13 +867,13 @@ public class OnlineEmulatorInstrumentedTest {
         mutate(teacher, "changeProgress", OnlineJson.values(
                 "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
         showSession(student, sid);
-        String entry = "이 대주제에 질문하기";
-        onView(withText(entry)).perform(scrollTo(), click());
+        String entry = "자세히 작성";
+        onView(withText(entry)).perform(click());
         await(() -> hasText("질문 제출"));
         String emptyId = currentQuestionId();
         onView(withId(R.id.back_button)).perform(click());
 
-        onView(withText(entry)).perform(scrollTo(), click());
+        onView(withText(entry)).perform(click());
         await(() -> hasText("질문 제출"));
         String savedId = currentQuestionId();
         assertNotEquals(emptyId, savedId);
@@ -872,7 +931,7 @@ public class OnlineEmulatorInstrumentedTest {
         await(() -> hasText("제출이 취소된 질문이에요")
                 && teacher.db.store().document(sid, "QUESTION", question).deleted);
         onView(withText("이전 화면으로")).perform(click());
-        await(() -> hasText("내 질문"));
+        await(() -> hasEnabledReaction("이해됐어요"));
         onView(withText(label)).check(doesNotExist());
         assertTrue(student.db.store().document(sid, "QUESTION", question).deleted);
     }

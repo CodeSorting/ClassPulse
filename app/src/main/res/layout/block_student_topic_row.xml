@@ -1,0 +1,26 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical" android:minHeight="42dp">
+    <ImageView android:id="@+id/student_topic_branch" android:layout_width="18dp"
+        android:layout_height="42dp" android:src="@drawable/ic_cp_topic_branch"
+        android:importantForAccessibility="no" android:visibility="gone"/>
+    <LinearLayout android:id="@+id/student_topic_body" android:layout_width="0dp"
+        android:layout_weight="1" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:minHeight="42dp">
+        <View android:id="@+id/student_topic_active_line" android:layout_width="3dp"
+            android:layout_height="32dp" android:background="@color/cp_accent" android:visibility="invisible"/>
+        <ImageView android:id="@+id/student_topic_done" android:layout_width="18dp"
+            android:layout_height="18dp" android:layout_marginStart="5dp" android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_cp_done" app:tint="@color/cp_accent"
+            android:importantForAccessibility="no"/>
+        <TextView android:id="@+id/student_topic_title" android:layout_width="0dp"
+            android:layout_weight="1" android:layout_height="wrap_content"
+            android:paddingVertical="8dp" android:textSize="15sp" android:textColor="@color/cp_ink"/>
+        <TextView android:id="@+id/student_topic_state" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginHorizontal="6dp"
+            android:paddingHorizontal="8dp" android:paddingVertical="4dp" android:background="@drawable/bg_cp_chip"
+            android:text="진행 중" android:textSize="11sp" android:textStyle="bold"
+            android:textColor="@color/cp_accent" android:visibility="gone"/>
+    </LinearLayout>
+</LinearLayout>

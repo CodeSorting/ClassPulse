@@ -2,6 +2,7 @@ package com.example.classpulse.ui.online;
 
 import android.os.Bundle;
 import android.view.*;
+import android.widget.LinearLayout;
 import androidx.annotation.*;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.fragment.app.Fragment;
@@ -212,11 +213,15 @@ public abstract class OnlineFragment extends Fragment {
     }
 
     protected void moreButton(String kind, String label) {
+        moreButton(shell.content, kind, label);
+    }
+
+    protected void moreButton(LinearLayout parent, String kind, String label) {
         List<OnlineDatabase.Document> list = kind(kind);
         if (list.isEmpty()) return;
         String last = list.get(list.size() - 1).id;
         ui.button(
-                shell.content,
+                parent,
                 label,
                 false,
                 () ->
@@ -252,8 +257,12 @@ public abstract class OnlineFragment extends Fragment {
     }
 
     protected void questionDraftCard(OnlineDatabase.Draft draft, String badge) {
+        questionDraftCard(shell.content, draft, badge);
+    }
+
+    protected void questionDraftCard(LinearLayout parent, OnlineDatabase.Draft draft, String badge) {
         boolean deleting = draftDeletionPending(draft.id);
-        View card = ui.card(shell.content, draft.text, topicTitle(draft.topicId), deleting ? "삭제 대기" : badge,
+        View card = ui.card(parent, draft.text, topicTitle(draft.topicId), deleting ? "삭제 대기" : badge,
                 deleting ? null : () -> open("online_question_edit", screen.withQuestion(draft.id).withTopic(draft.topicId)),
                 deleting || draft.closed ? null : anchor -> {
                     PopupMenu menu = new PopupMenu(requireContext(), anchor);
@@ -413,12 +422,16 @@ public abstract class OnlineFragment extends Fragment {
     }
 
     protected void pending() {
+        pending(shell.content);
+    }
+
+    protected void pending(LinearLayout parent) {
         for (OnlineDatabase.Outbox o : operations)
             if (o.sessionId.equals(screen.lessonId)
                     && !"ACKED".equals(o.state)
                     && !"SUPERSEDED".equals(o.errorCode)) {
                 ui.note(
-                        shell.content,
+                        parent,
                         o.errorMessage.isEmpty() ? stateLabel(o.state) : o.errorMessage);
             }
     }

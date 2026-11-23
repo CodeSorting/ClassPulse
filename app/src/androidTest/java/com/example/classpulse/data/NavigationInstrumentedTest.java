@@ -514,7 +514,7 @@ public class NavigationInstrumentedTest {
         for (String reaction : reactions)
             onView(withText("✓ " + reaction)).check(matches(isDisplayed()));
         screenshot("student-live-reactions");
-        tap("질문 작성");
+        tap("자세히 작성");
         awaitRoute("question_edit");
         field("궁금한 내용", "두 번째 주제의 계산이 궁금해요");
         tap("질문 제출하기");

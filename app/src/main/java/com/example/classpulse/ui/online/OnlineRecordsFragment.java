@@ -53,6 +53,10 @@ public final class OnlineRecordsFragment extends OnlineFragment {
                         () -> open("online_records", ScreenContext.empty().forLesson(s.id)));
             return;
         }
+        if (!documentsLoaded || !draftsLoaded || !operationsLoaded) {
+            ui.note(shell.content, "수업 기록을 불러오고 있어요.");
+            return;
+        }
         JSONObject s = lesson();
         if (s.optString("id").isEmpty()) {
             ui.note(shell.content, "수업 접근 권한과 기록을 확인하고 있어요.");

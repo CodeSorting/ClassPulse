@@ -4,7 +4,6 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.example.classpulse.R;
@@ -12,6 +11,7 @@ import com.example.classpulse.data.LessonRepository;
 import com.example.classpulse.domain.Models;
 import com.example.classpulse.ui.BaseFragment;
 import com.example.classpulse.ui.Ui;
+import com.example.classpulse.ui.StudentLessonView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
@@ -23,11 +23,15 @@ import java.util.Set;
 public final class LiveLessonFragment extends BaseFragment {
     private boolean pending;
     private String reactionTopicId = "", lastReactionProgress = "";
+    private StudentLessonView studentView;
+    private Bundle studentState;
+    private boolean studentLayout;
 
     @Override
     public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
         if (state != null) {
+            studentState = state.getBundle("studentLesson");
             reactionTopicId = state.getString("reactionTopicId", "");
             lastReactionProgress = state.getString("lastReactionProgress", "");
         }
@@ -38,6 +42,20 @@ public final class LiveLessonFragment extends BaseFragment {
         super.onSaveInstanceState(state);
         state.putString("reactionTopicId", reactionTopicId);
         state.putString("lastReactionProgress", lastReactionProgress);
+        state.putBundle("studentLesson", studentView == null ? studentState : studentView.saveState());
+    }
+
+    @Override
+    public void onStop() {
+        if (studentView != null) studentView.stop();
+        super.onStop();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (studentView != null) studentView.release();
+        studentLayout = false;
+        super.onDestroyView();
     }
 
     @Nullable
@@ -58,8 +76,19 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void render() {
-        clear();
         Models.Lesson lesson = lesson();
+        if (lesson != null && !"TEACHER".equals(vm.role()) && lesson.isMember(vm.userId())
+                && Models.LIVE.equals(lesson.status)) {
+            renderStudentLesson(lesson);
+            return;
+        }
+        if (studentLayout) {
+            studentView.release();
+            studentLayout = false;
+        }
+        content.setPadding(dp(24), dp(22), dp(24), dp(24));
+        dock.setPadding(dp(24), dp(12), dp(24), dp(12));
+        clear();
         if (lesson == null) {
             ui.note(content, "수업을 불러오고 있어요.");
             return;
@@ -104,7 +133,65 @@ public final class LiveLessonFragment extends BaseFragment {
         if (teacher) ui.note(content, "녹음·음성 변환은 아직 연동되지 않았어요. 현재는 수업 진도와 반응·질문을 이 기기에 저장합니다.");
         showTopics(lesson, teacher);
         if (teacher) renderTeacher(lesson, current);
-        else renderStudent(lesson, current);
+        else renderStudentLesson(lesson);
+    }
+
+    private void renderStudentLesson(Models.Lesson lesson) {
+        if (studentView == null) {
+            final String questionStudent = vm.userId(), questionSession = lesson.id;
+            studentView = new StudentLessonView(requireContext(), studentState, new StudentLessonView.Actions() {
+                public void react(String type) {
+                    Models.Lesson current = lesson();
+                    if (current != null) LiveLessonFragment.this.react(current, type);
+                }
+
+                public void save(String id, String topic, String text, boolean submit, StudentLessonView.Result result) {
+                    LessonRepository.Callback<String> callback = new LessonRepository.Callback<String>() {
+                        public void onSuccess(String value) { result.success(); }
+                        public void onError(String message) { result.error(message); }
+                    };
+                    if (submit) vm.repo.submitQuestion(id, questionSession, topic, questionStudent, text, callback);
+                    else vm.repo.saveDraft(id, questionSession, topic, questionStudent, text, callback);
+                }
+
+                public void edit(String id, String topic) {
+                    if (getView() != null) navigate("question_edit", screen().withQuestion(id).withTopic(topic));
+                }
+
+                public void error(String message) {
+                    if (getView() != null) showError(message);
+                }
+            });
+        }
+        if (!studentLayout) {
+            clear();
+            content.setPadding(dp(12), dp(10), dp(12), dp(16));
+            dock.setPadding(dp(12), dp(8), dp(12), dp(10));
+            studentView.attach(content, dock);
+            studentLayout = true;
+        }
+        List<StudentLessonView.Topic> outline = new ArrayList<>();
+        for (Models.Topic topic : lesson.topics)
+            outline.add(new StudentLessonView.Topic(topic.id, topic.parentTopicId, topic.title, topic.completed,
+                    lesson.currentVisitId != null && topic.id.equals(lesson.currentTopicId)));
+        Set<String> selected = new HashSet<>();
+        for (Models.Reaction reaction : lesson.reactions)
+            if (vm.userId().equals(reaction.studentId) && safeEquals(reaction.visitId, lesson.currentVisitId))
+                selected.add(reaction.type);
+        Models.Question ownDraft = lesson.question(studentView.draftId());
+        if (ownDraft != null) studentView.acceptDraft(ownDraft.id, !Models.DRAFT.equals(ownDraft.status));
+        studentView.update(lesson.title, lesson.status, outline, selected, java.util.Collections.emptySet(),
+                lesson.questionsOpen, lesson.questionsOpen && lesson.currentVisitId != null);
+        studentView.records().removeAllViews();
+        int count = 0;
+        for (Models.Question question : lesson.questions)
+            if (vm.userId().equals(question.studentId) && !studentView.editingDraft(question.id)) count++;
+        if (count > 0) ui.button(studentView.records(), "내 질문·답변", false, () -> navigate("questions"));
+        studentView.records().setVisibility(count == 0 ? View.GONE : View.VISIBLE);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void showTopics(Models.Lesson lesson, boolean teacher) {
@@ -178,65 +265,6 @@ public final class LiveLessonFragment extends BaseFragment {
                         });
         next.setEnabled(!pending);
         ui.button(dock, "수업 종료", false, () -> end(lesson)).setEnabled(!pending);
-    }
-
-    private void renderStudent(Models.Lesson lesson, Models.Topic current) {
-        ui.pair(
-                content,
-                "질문 표시",
-                () -> {
-                    if (current == null) {
-                        showError("질문할 대주제를 선택해 주세요.");
-                        return;
-                    }
-                    ui.prompt(
-                            "질문 키워드 · 선택",
-                            "",
-                            false,
-                            value ->
-                                    vm.repo.saveMark(
-                                            lesson.id,
-                                            current.id,
-                                            vm.userId(),
-                                            value,
-                                            callback(id ->
-                                                    Toast.makeText(
-                                                                    requireContext(),
-                                                                    "나만 볼 수 있는 질문 표시를 저장했어요.",
-                                                                    Toast.LENGTH_SHORT)
-                                                            .show())));
-                },
-                "질문 작성",
-                () -> newQuestion(current == null ? null : current.id));
-        ui.note(content, "완료된 주제에도 질문할 수 있어요. 반응은 현재 진행 중인 주제에 연결돼요.");
-        boolean accepting = lesson.questionsOpen && current != null && lesson.currentVisitId != null;
-        ui.text(dock, accepting ? "익명 반응을 보내요. 선택한 반응을 다시 누르면 취소돼요."
-                : !lesson.questionsOpen ? "교수님이 질문·반응 접수를 마감했어요."
-                : "모든 대주제를 마쳐 반응 접수가 끝났어요.");
-        Set<String> selected = new HashSet<>();
-        for (Models.Reaction reaction : lesson.reactions)
-            if (vm.userId().equals(reaction.studentId) && safeEquals(reaction.visitId, lesson.currentVisitId))
-                selected.add(reaction.type);
-        List<String> types = Models.REACTION_TYPES;
-        for (int i = 0; i + 1 < types.size(); i += 2) {
-            String left = types.get(i), right = types.get(i + 1);
-            ui.pair(
-                    dock,
-                    selectedReactionLabel(left, selected),
-                    () -> react(lesson, left),
-                    selectedReactionLabel(right, selected),
-                    () -> react(lesson, right));
-            View pair = dock.getChildAt(dock.getChildCount() - 1);
-            pair.findViewById(R.id.left).setEnabled(accepting);
-            pair.findViewById(R.id.right).setEnabled(accepting);
-        }
-        ui.button(dock, selectedReactionLabel(Models.UNDERSTOOD, selected),
-                selected.contains(Models.UNDERSTOOD), () -> react(lesson, Models.UNDERSTOOD))
-                .setEnabled(accepting);
-    }
-
-    private String selectedReactionLabel(String type, Set<String> selected) {
-        return (selected.contains(type) ? "✓ " : "") + Ui.reactionLabel(type);
     }
 
     private boolean hasNextTopic(Models.Lesson lesson, Models.Topic current) {

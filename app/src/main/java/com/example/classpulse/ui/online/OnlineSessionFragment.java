@@ -2,13 +2,16 @@ package com.example.classpulse.ui.online;
 
 import android.os.Bundle;
 import android.view.View;
+import android.widget.LinearLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.example.classpulse.R;
 import com.example.classpulse.domain.Models;
 import com.example.classpulse.online.*;
 import com.example.classpulse.ui.Ui;
+import com.example.classpulse.ui.StudentLessonView;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,11 +21,15 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 public final class OnlineSessionFragment extends OnlineFragment {
     private boolean busy, intakeSettingsPending;
     private String reactionTopicId = "", lastReactionProgress = "";
+    private StudentLessonView studentView;
+    private Bundle studentState;
+    private boolean studentLayout;
 
     @Override
     public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
         if (state != null) {
+            studentState = state.getBundle("studentLesson");
             reactionTopicId = state.getString("reactionTopicId", "");
             lastReactionProgress = state.getString("lastReactionProgress", "");
         }
@@ -33,6 +40,20 @@ public final class OnlineSessionFragment extends OnlineFragment {
         super.onSaveInstanceState(state);
         state.putString("reactionTopicId", reactionTopicId);
         state.putString("lastReactionProgress", lastReactionProgress);
+        state.putBundle("studentLesson", studentView == null ? studentState : studentView.saveState());
+    }
+
+    @Override
+    public void onStop() {
+        if (studentView != null) studentView.stop();
+        super.onStop();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (studentView != null) studentView.release();
+        studentLayout = false;
+        super.onDestroyView();
     }
 
     @Override
@@ -43,14 +64,26 @@ public final class OnlineSessionFragment extends OnlineFragment {
     @Override
     protected void render() {
         if (shell == null || repo == null) return;
-        clear();
         JSONObject s = lesson();
+        if (documentsLoaded && operationsLoaded && draftsLoaded && !owner()
+                && ("LIVE".equals(s.optString("status")) || "READY".equals(s.optString("status")))) {
+            renderStudentLesson(s);
+            return;
+        }
+        if (studentLayout) {
+            studentView.release();
+            studentLayout = false;
+        }
+        shell.demoBanner.setVisibility(View.VISIBLE);
+        shell.content.setPadding(dp(24), dp(22), dp(24), dp(24));
+        shell.dock.setPadding(dp(24), dp(12), dp(24), dp(12));
+        clear();
         if (s.optString("id").isEmpty()) {
             ui.note(shell.content, "수업 권한과 진도를 확인하고 있어요.");
             showNotice();
             return;
         }
-        if (!documentsLoaded || !operationsLoaded) {
+        if (!documentsLoaded || !operationsLoaded || (!owner() && !draftsLoaded)) {
             ui.note(shell.content, "수업 내용과 전송 상태를 불러오고 있어요.");
             showNotice();
             return;
@@ -170,52 +203,32 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                 false,
                                 v -> repo.saveMark(screen.lessonId, currentTopic, v, callback(x -> {})));
                     });
-            if ("LIVE".equals(s.optString("status")) && !p.isNull("currentVisitId")
-                    && !p.optString("currentVisitId").isEmpty()) {
-                boolean accepting = s.optBoolean("questionsOpen", true);
-                ui.section(shell.content, "지금 수업은 어떤가요?", accepting
-                        ? "반응은 익명으로 전달돼요. 선택한 반응을 다시 누르면 취소돼요."
-                        : "교수님이 질문·반응 접수를 마감했어요. 다시 열리면 참여할 수 있어요.");
-                String visitId = p.optString("currentVisitId");
-                List<String> types = Models.REACTION_TYPES;
-                for (int i = 0; i + 1 < types.size(); i += 2) {
-                    String left = types.get(i), right = types.get(i + 1);
-                    ui.pair(
-                            shell.dock,
-                            reactionLabel(left, visitId),
-                            () -> react(left, progress),
-                            reactionLabel(right, visitId),
-                            () -> react(right, progress));
-                    View pair = shell.dock.getChildAt(shell.dock.getChildCount() - 1);
-                    pair.findViewById(R.id.left).setEnabled(accepting && !reactionPending(left, visitId));
-                    pair.findViewById(R.id.right).setEnabled(accepting && !reactionPending(right, visitId));
-                }
-                String understoodLabel = reactionLabel(Models.UNDERSTOOD, visitId);
-                ui.button(shell.dock, understoodLabel, understoodLabel.startsWith("✓"),
-                        () -> react(Models.UNDERSTOOD, progress))
-                        .setEnabled(accepting && !reactionPending(Models.UNDERSTOOD, visitId));
-            }
         }
-        ui.section(shell.content, teacher ? "접수된 질문" : "내 질문", null);
+        renderSessionRecords(shell.content, teacher);
+    }
+
+    private void renderSessionRecords(LinearLayout target, boolean teacher) {
+        ui.section(target, teacher ? "접수된 질문" : "내 질문", null);
         for (OnlineDatabase.Document d : kind("QUESTION")) {
             JSONObject q = OnlineJson.object(d.json);
             ui.card(
-                    shell.content,
+                    target,
                     q.optString("text"),
                     topicTitle(q.optString("topicId")),
                     stateLabel(q.optString("status")),
                     () -> open("online_question", screen.withQuestion(d.id)));
         }
-        moreButton("QUESTION", "이전 질문 더 불러오기");
+        moreButton(target, "QUESTION", "이전 질문 더 불러오기");
         if (!teacher) {
             for (OnlineDatabase.Draft d : drafts)
-                if (visibleQuestionDraft(d))
-                    questionDraftCard(d, d.closed ? "전송 대기 · 접수 확인"
+                if (visibleQuestionDraft(d)
+                        && (studentView == null || !studentLayout || !studentView.editingDraft(d.id) || d.closed))
+                    questionDraftCard(target, d, d.closed ? "전송 대기 · 접수 확인"
                             : d.dirty ? "기기에 저장 · 전송 대기" : "개인 초안");
             for (OnlineDatabase.Draft d : drafts)
                 if ("MARK".equals(d.kind) && !"DELETED".equals(d.state))
                     ui.card(
-                            shell.content,
+                            target,
                             d.text.isEmpty() ? "질문할 순간" : d.text,
                             topicTitle(d.topicId),
                             "나만 보는 표시",
@@ -225,11 +238,11 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                             screen.withQuestion(OnlineJson.id())
                                                     .withTopic(d.topicId)));
         }
-        ui.section(shell.content, "함께 보는 공개 Q&A", null);
+        ui.section(target, "함께 보는 공개 Q&A", null);
         for (OnlineDatabase.Document d : kind("PUBLIC_QNA")) {
             JSONObject q = OnlineJson.object(d.json);
             ui.card(
-                    shell.content,
+                    target,
                     q.optString("questionText"),
                     q.optString("answerText"),
                     topicTitle(q.optString("topicId")),
@@ -240,25 +253,101 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                     .setPositiveButton("확인", null)
                                     .show());
         }
-        moreButton("PUBLIC_QNA", "이전 공개 Q&A 더 불러오기");
+        moreButton(target, "PUBLIC_QNA", "이전 공개 Q&A 더 불러오기");
         if (!teacher) {
             for (OnlineDatabase.Conflict c : conflicts) {
                 ui.note(
-                        shell.content,
+                        target,
                         "다른 기기의 원고와 충돌했어요.\n이 기기: "
                                 + c.localText
                                 + "\n다른 기기: "
                                 + OnlineJson.object(c.remoteJson).optString("text"));
                 ui.pair(
-                        shell.content,
+                        target,
                         "이 기기 원고 유지",
                         () -> repo.resolveConflict(c.sessionId, c.kind, c.id, true),
                         "다른 기기 원고 사용",
                         () -> repo.resolveConflict(c.sessionId, c.kind, c.id, false));
             }
         }
-        pending();
-        ui.button(shell.content, "전송 상태 다시 확인", false, repo::retry);
+        pending(target);
+        ui.button(target, "전송 상태 다시 확인", false, repo::retry);
+    }
+
+    private void renderStudentLesson(JSONObject session) {
+        if (studentView == null) {
+            final OnlineRepository questionRepository = repo;
+            final String questionSession = screen.lessonId;
+            studentView = new StudentLessonView(requireContext(), studentState, new StudentLessonView.Actions() {
+                public void react(String type) {
+                    JSONObject progress = lesson().optJSONObject("progress");
+                    if (progress != null) OnlineSessionFragment.this.react(type, progress);
+                }
+
+                public void save(String id, String topic, String text, boolean submit, StudentLessonView.Result result) {
+                    questionRepository.saveDraft(questionSession, id, topic, text, submit, new OnlineRepository.Callback() {
+                        public void success(JSONObject value) { result.success(); }
+                        public void error(String reason, String message) { result.error(message); }
+                    });
+                }
+
+                public void edit(String id, String topic) {
+                    if (shell != null) open("online_question_edit", screen.withQuestion(id).withTopic(topic));
+                }
+
+                public void error(String message) { OnlineSessionFragment.this.error(message); }
+            });
+        }
+        if (!studentLayout) {
+            clear();
+            shell.demoBanner.setVisibility(View.GONE);
+            shell.content.setPadding(dp(12), dp(10), dp(12), dp(16));
+            shell.dock.setPadding(dp(12), dp(8), dp(12), dp(10));
+            studentView.attach(shell.content, shell.dock);
+            studentLayout = true;
+        }
+        shell.roleLabel.setText("학생");
+        JSONObject progress = session.optJSONObject("progress");
+        if (progress == null) progress = new JSONObject();
+        String visit = progress.optString("currentVisitId", "");
+        String current = progress.optString("currentTopicId", "");
+        boolean live = "LIVE".equals(session.optString("status")) && !progress.isNull("currentVisitId") && !visit.isEmpty();
+        List<StudentLessonView.Topic> outline = new ArrayList<>();
+        for (OnlineDatabase.Document document : topics()) {
+            JSONObject entry = OnlineJson.object(document.json);
+            outline.add(new StudentLessonView.Topic(document.id,
+                    entry.isNull("parentTopicId") ? null : entry.optString("parentTopicId"),
+                    entry.optString("title"), OnlineJson.contains(progress.optJSONArray("completedTopicIds"), document.id),
+                    live && document.id.equals(current)));
+        }
+        Set<String> selected = new HashSet<>(), waiting = new HashSet<>();
+        for (String type : Models.REACTION_TYPES) {
+            OnlineDatabase.Document receipt = reactionReceipt(type, visit);
+            if (receipt != null && !receipt.deleted) selected.add(type);
+            if (reactionPending(type, visit)) waiting.add(type);
+        }
+        OnlineDatabase.Draft ownDraft = draft("QUESTION_DRAFT", studentView.draftId());
+        if (ownDraft != null) studentView.acceptDraft(ownDraft.id, ownDraft.closed);
+        boolean open = session.optBoolean("questionsOpen", true);
+        studentView.update(session.optString("title"), session.optString("status"), outline, selected, waiting, open, live && open);
+        LinearLayout records = studentView.records();
+        records.removeAllViews();
+        if (!notice.isEmpty()) ui.note(records, notice);
+        renderSessionRecords(records, false);
+        boolean hasRecords = !kind("QUESTION").isEmpty() || !kind("PUBLIC_QNA").isEmpty() || !kind("MARK").isEmpty()
+                || !conflicts.isEmpty() || !notice.isEmpty();
+        for (OnlineDatabase.Draft draft : drafts)
+            if (visibleQuestionDraft(draft) && !studentView.editingDraft(draft.id)) hasRecords = true;
+        for (OnlineDatabase.Outbox operation : operations)
+            if (screen.lessonId.equals(operation.sessionId) && !"ACKED".equals(operation.state)
+                    && !"SUPERSEDED".equals(operation.errorCode)
+                    && !OnlineRepository.questionDraftKey(screen.lessonId, studentView.draftId()).equals(operation.entityKey))
+                hasRecords = true;
+        records.setVisibility(hasRecords ? View.VISIBLE : View.GONE);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void renderReactionPages(List<OnlineDatabase.Document> outline, String currentTopic) {
@@ -284,11 +373,6 @@ public final class OnlineSessionFragment extends OnlineFragment {
             lastReactionProgress = currentRoot;
         }
         ui.reactionPages(shell.content, pages, reactionTopicId, id -> reactionTopicId = id);
-    }
-
-    private String reactionLabel(String type, String visitId) {
-        OnlineDatabase.Document receipt = reactionReceipt(type, visitId);
-        return (receipt != null && !receipt.deleted ? "✓ " : "") + Ui.reactionLabel(type);
     }
 
     private OnlineDatabase.Document reactionReceipt(String type, String visitId) {
