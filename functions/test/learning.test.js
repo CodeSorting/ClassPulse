@@ -184,3 +184,60 @@ test("only the teacher can create and inspect the immutable raw recording", asyn
     await assertFails(getMetadata(studentFile));
     await assertFails(uploadBytes(teacherFile, bytes, { contentType: "audio/mp4" }));
 });
+
+test("live major-unit jobs are independent, idempotent, and merge out-of-order results without losing edits", async () => {
+    const sent = [];
+    let aiInput;
+    const f = await fixture({ startRecording: r => sent.push(r), generateDraft: (mode, input) => {
+        aiInput = input; return { text: "대단원 요약" };
+    } });
+    await f.session.update({ status: "LIVE" });
+    const first = { recordingId: randomUUID(), topicId: f.topic, startedAt: Date.now() - 30000, endedAt: Date.now() - 20000 };
+    const second = { recordingId: randomUUID(), topicId: f.nextTopic, startedAt: Date.now() - 19000, endedAt: Date.now() - 10000 };
+    await Promise.all([f.run(f.teacher, "startLectureStt", first), f.run(f.teacher, "startLectureStt", first)]);
+    await f.run(f.teacher, "startLectureStt", second);
+    assert.equal(sent.length, 2);
+    const result = (i, text) => ({ result: "SUCCEEDED", progress: 100, text,
+        segments: [{ start: 0, end: 5000, text }], params: { userdata: sent[i].userdata } });
+    assert.equal(await f.service.acceptLectureResult(result(1, "둘째 대단원")), true);
+    const view = await f.run(f.teacher, "getLectureMaterial");
+    await f.mutate(f.teacher, "saveLecturePart", { baseRevision: view.material.revision,
+        partId: view.parts[0].id, topicId: f.nextTopic, text: "검토한 둘째 대단원" });
+    await f.mutate(f.teacher, "publishLecture", { baseRevision: view.material.revision + 1 });
+    assert.equal(await f.service.acceptLectureResult(result(0, "첫째 대단원")), true);
+    assert.equal(await f.service.acceptLectureResult(result(0, "중복 결과")), false);
+    const merged = await f.run(f.teacher, "getLectureMaterial");
+    assert.deepEqual(merged.parts.map(p => p.text), ["첫째 대단원", "검토한 둘째 대단원"]);
+    assert.deepEqual(merged.parts.map(p => p.topicId), [f.topic, f.nextTopic]);
+    assert.deepEqual(merged.parts.map(p => p.id), ["0000", "0001"]);
+    assert.equal(merged.jobs.filter(j => j.state === "READY").length, 2);
+    assert.deepEqual((await f.run(f.student, "getLectureMaterial")).parts.map(p => p.text), ["검토한 둘째 대단원"]);
+    assert.deepEqual((await f.run(f.student, "getLectureMaterial")).jobs, []);
+    await f.run(f.teacher, "generateLearningDraft", { mode: "summary", topicId: f.topic });
+    assert.equal(aiInput.transcript, "첫째 대단원");
+    await f.run(f.teacher, "startLectureStt", first);
+    assert.equal(sent.length, 2);
+});
+
+test("unit validation, failed jobs, and post-class final chunks cannot erase existing transcripts", async () => {
+    const sent = [];
+    const f = await fixture({ startRecording: r => sent.push(r) });
+    await f.session.update({ status: "LIVE" });
+    const chunk = { recordingId: randomUUID(), topicId: f.topic, startedAt: Date.now() - 10000, endedAt: Date.now() - 1000 };
+    await assert.rejects(f.start(), { reason: "LESSON_NOT_ENDED" });
+    await assert.rejects(f.run(f.teacher, "startLectureStt", { ...chunk, endedAt: chunk.startedAt }), { reason: "INVALID_RECORDING_TIME" });
+    await f.session.collection("topics").doc(f.nextTopic).update({ parentTopicId: f.topic });
+    await assert.rejects(f.run(f.teacher, "startLectureStt", { ...chunk, topicId: f.nextTopic }), { reason: "INVALID_TOPIC" });
+    await f.run(f.teacher, "startLectureStt", chunk);
+    await f.service.acceptLectureResult({ result: "SUCCEEDED", progress: 100, text: "보존할 원문", segments: [],
+        params: { userdata: sent[0].userdata } });
+    await f.session.update({ status: "ENDED" });
+    const last = { ...chunk, recordingId: randomUUID() };
+    await f.run(f.teacher, "startLectureStt", last);
+    await f.service.acceptLectureResult({ result: "FAILED", params: { userdata: sent[1].userdata } });
+    assert.equal((await f.run(f.teacher, "getLectureMaterial")).parts[0].text, "보존할 원문");
+    await f.run(f.teacher, "startLectureStt", last);
+    await f.service.acceptLectureResult({ result: "SUCCEEDED", progress: 100, text: "마지막 원문", segments: [],
+        params: { userdata: sent[2].userdata } });
+    assert.equal((await f.run(f.teacher, "getLectureMaterial")).parts.length, 2);
+});

@@ -16,20 +16,20 @@
 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="6dp" android:orientation="horizontal" android:baselineAligned="false"><com.google.android.material.button.MaterialButton
             android:id="@+id/student_reaction_understood" style="@style/CpStudentReaction"
-            app:icon="@drawable/ic_cp_thumb_up"/>
+            app:icon="@drawable/ic_live_thumb_up"/>
 <com.google.android.material.button.MaterialButton
             android:id="@+id/student_reaction_understanding" style="@style/CpStudentReaction"
             app:icon="@drawable/ic_cp_confused" android:layout_marginStart="6dp"/>
 <com.google.android.material.button.MaterialButton
             android:id="@+id/student_reaction_speed" style="@style/CpStudentReaction"
-            app:icon="@drawable/ic_cp_fast" android:layout_marginStart="6dp"/></LinearLayout>
+            app:icon="@drawable/ic_live_speed" android:layout_marginStart="6dp"/></LinearLayout>
 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="6dp" android:orientation="horizontal" android:baselineAligned="false"><com.google.android.material.button.MaterialButton
             android:id="@+id/student_reaction_term" style="@style/CpStudentReaction"
-            app:icon="@drawable/ic_cp_term"/>
+            app:icon="@drawable/ic_live_menu_book"/>
 <com.google.android.material.button.MaterialButton
             android:id="@+id/student_reaction_calculation" style="@style/CpStudentReaction"
-            app:icon="@drawable/ic_cp_calc" android:layout_marginStart="6dp"/></LinearLayout>
+            app:icon="@drawable/ic_live_calculate" android:layout_marginStart="6dp"/></LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -62,7 +62,7 @@
             android:layout_width="52dp" android:layout_height="52dp" android:minWidth="0dp"
             android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
             android:contentDescription="질문 보내기" app:cornerRadius="26dp"
-            app:backgroundTint="@color/cp_brand" app:icon="@drawable/ic_cp_send"
+            app:backgroundTint="@color/cp_brand" app:icon="@drawable/ic_live_near_me"
             app:iconGravity="textStart" app:iconPadding="0dp" app:iconSize="25dp"
             app:iconTint="@color/cp_surface" app:rippleColor="@color/cp_on_dark_ripple"/>
     </LinearLayout>

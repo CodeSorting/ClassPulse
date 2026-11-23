@@ -76,6 +76,7 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void render() {
+        if (shell == null) return;
         Models.Lesson lesson = lesson();
         if (lesson != null && !"TEACHER".equals(vm.role()) && lesson.isMember(vm.userId())
                 && Models.LIVE.equals(lesson.status)) {

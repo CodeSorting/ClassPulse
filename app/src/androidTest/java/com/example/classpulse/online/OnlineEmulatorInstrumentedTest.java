@@ -41,14 +41,6 @@ public class OnlineEmulatorInstrumentedTest {
     private LocalDatabaseScope legacyScope;
     private OnlineServices.Factory previousFactory;
     private String previousRole;
-    private static final List<FirebaseApp> retiredApps = new ArrayList<>();
-
-    @AfterClass
-    public static void releaseApps() {
-        for (FirebaseApp app : retiredApps) app.delete();
-        retiredApps.clear();
-    }
-
     static final class Client {
         FirebaseApp app;
         FirebaseAuth auth;
@@ -89,7 +81,8 @@ public class OnlineEmulatorInstrumentedTest {
             for (Client c : clients) {
                 c.repo.close();
                 Tasks.await(c.firestore.terminate(), 10, TimeUnit.SECONDS);
-                retiredApps.add(c.app);
+                // Firebase Auth's emulator registry keeps references to named apps. Leave these
+                // alive until instrumentation exits so the next test class can also use Auth.
             }
             if (legacyScope != null) legacyScope.close();
             SharedPreferences.Editor edit = context.getSharedPreferences("local_demo", 0).edit();
@@ -542,6 +535,44 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void liveComposerSendsSelectedMajorAndKeepsDraftWhileIntakeIsClosed() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid");
+        join(teacher, student, sid);
+        JSONObject started = mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        showSession(student, sid);
+        onView(withId(R.id.student_question_topic)).perform(click());
+        onView(withContentDescription("질문 대주제 2, 베이즈 정리")).perform(click());
+        onView(withId(R.id.student_question_input)).perform(replaceText("이전 주제와 어떤 관계인가요?"), closeSoftKeyboard());
+        onView(withId(R.id.student_question_send)).perform(click());
+        await(() -> Tasks.await(teacher.firestore.collection("sessions/" + sid + "/questions")
+                .get(Source.SERVER), 10, TimeUnit.SECONDS).size() == 1);
+        QuerySnapshot submitted = Tasks.await(teacher.firestore.collection("sessions/" + sid + "/questions")
+                .get(Source.SERVER), 10, TimeUnit.SECONDS);
+        JSONObject received = OnlineJson.json(submitted.getDocuments().get(0).getData());
+        assertEquals(fixture.optString("second"), received.optString("topicId"));
+        assertEquals("이전 주제와 어떤 관계인가요?", received.optString("text"));
+        assertEquals("SUBMITTED", received.optString("status"));
+        onView(withId(R.id.student_question_input)).check(matches(withText("")));
+        onView(withId(R.id.student_question_input)).perform(replaceText("마감 중에도 남아야 할 질문"), closeSoftKeyboard());
+        JSONObject closed = mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", started.getJSONObject("session").optLong("revision"), "open", false));
+        await(() -> !cached(student, sid).optBoolean("questionsOpen", true));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withId(R.id.student_question_send)).check(matches(not(isEnabled())));
+        onView(withId(R.id.student_question_input)).check(matches(withText("마감 중에도 남아야 할 질문")));
+        scenario.recreate();
+        onView(withId(R.id.student_question_input)).check(matches(withText("마감 중에도 남아야 할 질문")));
+        mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", closed.getJSONObject("session").optLong("revision"), "open", true));
+        await(() -> cached(student, sid).optBoolean("questionsOpen"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withId(R.id.student_question_send)).check(matches(isEnabled()));
+    }
+
+    @Test
     public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllReactions()
             throws Exception {
         Client teacher = client(), student = client();
@@ -630,8 +661,9 @@ public class OnlineEmulatorInstrumentedTest {
 
         scenario.onActivity(a -> a.navigate("online_records", ScreenContext.empty().forLesson(sid)));
         await(() -> hasEnabledReaction("내 반응"));
-        onView(withText("내 반응")).perform(click());
-        await(() -> hasEnabledReaction(label));
+        clickStableText("내 반응");
+        await(() -> hasTextInHierarchy(label));
+        onView(withText(label)).perform(scrollTo()).check(matches(isDisplayed()));
     }
 
     @Test
@@ -803,6 +835,26 @@ public class OnlineEmulatorInstrumentedTest {
         }
     }
 
+    /** Room and the first remote snapshot can replace a record row between scroll and touch. */
+    private void clickStableText(String text) throws Exception {
+        onView(withText(text)).perform(scrollTo());
+        AtomicReference<android.view.View> previous = new AtomicReference<>();
+        AtomicLong since = new AtomicLong();
+        await(() -> {
+            AtomicReference<android.view.View> current = new AtomicReference<>();
+            onView(withText(text)).check((view, error) -> {
+                if (error != null) throw error;
+                current.set(view);
+            });
+            if (previous.getAndSet(current.get()) != current.get()) {
+                since.set(android.os.SystemClock.uptimeMillis());
+                return false;
+            }
+            return android.os.SystemClock.uptimeMillis() - since.get() >= 400;
+        });
+        onView(withText(text)).perform(click());
+    }
+
     private int teacherReactionCount(Client teacher, String sid) {
         OnlineDatabase.Document summary = teacher.db.store().document(sid, "STATS", "summary");
         return summary == null ? -1 : OnlineJson.object(summary.json).optInt("reactionEventCount", -1);
@@ -868,11 +920,13 @@ public class OnlineEmulatorInstrumentedTest {
                 "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
         showSession(student, sid);
         String entry = "자세히 작성";
+        await(() -> hasText(entry));
         onView(withText(entry)).perform(click());
         await(() -> hasText("질문 제출"));
         String emptyId = currentQuestionId();
         onView(withId(R.id.back_button)).perform(click());
 
+        await(() -> hasText(entry));
         onView(withText(entry)).perform(click());
         await(() -> hasText("질문 제출"));
         String savedId = currentQuestionId();
@@ -890,10 +944,13 @@ public class OnlineEmulatorInstrumentedTest {
                 + "/lessonData/" + sid + "/questionDrafts");
         assertFalse(Tasks.await(drafts.document(emptyId).get(Source.SERVER), 10, TimeUnit.SECONDS).exists());
 
+        scenario.onActivity(a -> a.navigate("online_records", ScreenContext.empty().forLesson(sid)));
+        await(() -> hasTextInHierarchy(text));
         onView(withContentDescription("질문 초안 더보기: " + text)).perform(scrollTo(), click());
         onView(withText("초안 삭제")).perform(click());
         onView(withText("삭제")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
         await(() -> "DELETED".equals(student.db.store().draft(sid, "QUESTION_DRAFT", savedId).state));
+        await(() -> !hasTextInHierarchy(text));
         onView(withText(text)).check(doesNotExist());
         DocumentSnapshot deleted = Tasks.await(drafts.document(savedId).get(Source.SERVER), 10, TimeUnit.SECONDS);
         assertNotNull(deleted.getTimestamp("deletedAt"));
@@ -921,8 +978,18 @@ public class OnlineEmulatorInstrumentedTest {
         showSession(student, sid);
         await(() -> student.db.store().document(sid, "QUESTION", question) != null
                 && teacher.db.store().document(sid, "QUESTION", question) != null);
-        onView(withText(label)).perform(scrollTo(), click());
-        await(() -> hasText("제출 취소"));
+        scenario.onActivity(a -> a.navigate("online_records", ScreenContext.empty().forLesson(sid)));
+        await(() -> hasTextInHierarchy(label));
+        clickStableText(label);
+        scenario.onActivity(a -> {
+            a.getSupportFragmentManager().executePendingTransactions();
+            androidx.fragment.app.Fragment current = a.getSupportFragmentManager().findFragmentById(R.id.main);
+            assertEquals("online_question", current.getTag());
+            assertEquals(question, ScreenContext.from(current.getArguments()).questionId);
+        });
+        capture("withdraw-question-detail");
+        await(() -> hasText("아직 공개된 답변이 없어요."));
+        onView(withText("제출 취소")).check(matches(isDisplayed()));
         onView(withText("제출 취소")).perform(click());
         onView(withText("계속 두기")).perform(click());
         onView(withText(label)).check(matches(isDisplayed()));
@@ -931,7 +998,7 @@ public class OnlineEmulatorInstrumentedTest {
         await(() -> hasText("제출이 취소된 질문이에요")
                 && teacher.db.store().document(sid, "QUESTION", question).deleted);
         onView(withText("이전 화면으로")).perform(click());
-        await(() -> hasEnabledReaction("이해됐어요"));
+        await(() -> hasTextInHierarchy("내 질문"));
         onView(withText(label)).check(doesNotExist());
         assertTrue(student.db.store().document(sid, "QUESTION", question).deleted);
     }
@@ -983,6 +1050,63 @@ public class OnlineEmulatorInstrumentedTest {
         await(() -> hasText("가능한 결과를 세면 두 개예요."));
         assertEquals(1, call(student, "learning.getLearningQuizzes", OnlineJson.values("sessionId", sid))
                 .getJSONArray("attempts").getJSONObject(0).getInt("score"));
+    }
+
+    @Test
+    public void endedTeacherKeepsRecordingSummaryAndQuizOnSeparatePages() throws Exception {
+        Client teacher = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid");
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "END", "expectedProgressVersion", 1));
+        showSession(teacher, sid);
+        await(() -> hasText("1. 녹음·전체 원문 검토"));
+        onView(withText("1. 녹음·전체 원문 검토")).perform(scrollTo(), click());
+        await(() -> hasText("대단원 자동 녹음"));
+        onView(withText("대주제 자료 편집")).check(doesNotExist());
+        onView(withText("다음 단계: 복습 퀴즈 만들기")).check(doesNotExist());
+        androidx.test.espresso.Espresso.pressBack();
+        await(() -> hasText("2. 대주제별 요약·보충 설명"));
+        onView(withText("2. 대주제별 요약·보충 설명")).perform(scrollTo(), click());
+        await(() -> hasText("대주제 자료 편집"));
+        onView(withText("대단원 자동 녹음")).check(doesNotExist());
+        onView(withText("녹음별 처리 상태")).check(doesNotExist());
+        onView(withText("다음 단계: 복습 퀴즈 만들기")).perform(scrollTo(), click());
+        await(() -> hasText("대주제 선택 · 퀴즈 작성"));
+    }
+
+    @Test
+    public void studentReadsPublishedSummaryAndSupplementDirectlyOnThePage() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid");
+        join(teacher, student, sid);
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "END", "expectedProgressVersion", 1));
+        mutate(teacher, "learning.saveLearningNote", OnlineJson.values(
+                "sessionId", sid, "topicId", fixture.optString("first"), "baseRevision", 0,
+                "summary", "확률은 가능한 결과와 사건을 비교해요.",
+                "supplement", "분모에 어떤 사건이 들어가는지 먼저 확인해요.", "publish", true));
+        showSession(student, sid);
+        await(() -> hasText("대주제별 요약·보충 설명"));
+        onView(withText("질문할 순간 표시")).check(doesNotExist());
+        onView(withText("대주제별 요약·보충 설명")).perform(scrollTo(), click());
+        await(() -> hasText("요약\n확률은 가능한 결과와 사건을 비교해요."));
+        onView(withText("교수 보충 설명\n분모에 어떤 사건이 들어가는지 먼저 확인해요."))
+                .perform(scrollTo()).check(matches(isDisplayed()));
+    }
+
+    private boolean hasTextInHierarchy(String text) {
+        try {
+            onView(withText(text)).check(matches(withEffectiveVisibility(Visibility.VISIBLE)));
+            return true;
+        } catch (androidx.test.espresso.NoMatchingViewException | AssertionError error) {
+            return false;
+        }
     }
 
     private boolean hasText(String text) {
