@@ -12,6 +12,8 @@ import com.example.classpulse.data.LessonRepository;
 import com.example.classpulse.domain.Models;
 import com.example.classpulse.ui.BaseFragment;
 import com.example.classpulse.ui.Ui;
+import com.example.classpulse.ui.LiveParticipationView;
+import androidx.activity.OnBackPressedCallback;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
@@ -24,6 +26,8 @@ public final class LiveLessonFragment extends BaseFragment {
     private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
     private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
     private boolean pending;
+    private LiveParticipationView participation;
+    private OnBackPressedCallback pickerBack;
 
     @Nullable
     @Override
@@ -43,8 +47,19 @@ public final class LiveLessonFragment extends BaseFragment {
     }
 
     private void render() {
-        clear();
+        if (shell == null) return;
         Models.Lesson lesson = lesson();
+        if (lesson != null && !"TEACHER".equals(vm.role()) && lesson.isMember(vm.userId()) && "LIVE".equals(lesson.status)) {
+            renderParticipation(lesson);
+            return;
+        }
+        if (participation != null) {
+            participation.unmount(shell);
+            participation = null;
+            if (pickerBack != null) pickerBack.remove();
+        }
+        shell.screenTitle.setText("수업 진행");
+        clear();
         if (lesson == null) {
             ui.note(content, "수업을 불러오고 있어요.");
             return;
@@ -90,6 +105,61 @@ public final class LiveLessonFragment extends BaseFragment {
         showTopics(lesson, teacher);
         if (teacher) renderTeacher(lesson, current);
         else renderStudent(lesson, current);
+    }
+
+    private void renderParticipation(Models.Lesson lesson) {
+        if (participation == null) {
+            participation = new LiveParticipationView(requireContext(), "local/" + vm.userId() + "/" + lesson.id,
+                    new LiveParticipationView.Listener() {
+                @Override public void reaction(int index) {
+                    Models.Lesson current = lesson();
+                    if (current != null && "LIVE".equals(current.status) && current.questionsOpen) react(current, TYPES[index]);
+                }
+                @Override public void saveDraft(String id, String topicId, String text) {
+                    vm.repo.saveDraft(id, lesson.id, topicId, vm.userId(), text, null);
+                }
+                @Override public void send(String id, String topicId, String text, LiveParticipationView.Result result) {
+                    Models.Lesson current = lesson();
+                    if (current == null || !"LIVE".equals(current.status) || !current.questionsOpen) {
+                        result.finish(false, "지금은 질문을 접수하지 않아요. 작성한 내용은 보관했어요.");
+                        return;
+                    }
+                    vm.repo.submitQuestion(id, current.id, topicId, vm.userId(), text, new LessonRepository.Callback<String>() {
+                        @Override public void onSuccess(String value) { result.finish(true, "이 기기에서 질문을 접수했어요."); }
+                        @Override public void onError(String message) { result.finish(false, message); }
+                    });
+                }
+            });
+            pickerBack = new OnBackPressedCallback(false) {
+                @Override public void handleOnBackPressed() { if (participation != null) participation.collapse(); }
+            };
+            requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), pickerBack);
+            participation.onExpandedChanged(() -> pickerBack.setEnabled(participation != null && participation.isExpanded()));
+        }
+        participation.mount(shell);
+        List<LiveParticipationView.Topic> outline = new ArrayList<>();
+        for (Models.Topic topic : lesson.topics)
+            outline.add(new LiveParticipationView.Topic(topic.id, topic.parentTopicId, topic.title, topic.completed));
+        boolean[] reactions = new boolean[4];
+        for (Models.Reaction reaction : lesson.reactions)
+            if (vm.userId().equals(reaction.studentId) && safeEquals(reaction.visitId, lesson.currentVisitId))
+                for (int i = 0; i < TYPES.length; i++) if (TYPES[i].equals(reaction.type)) reactions[i] = true;
+        participation.bind(lesson.title, outline, lesson.currentVisitId == null ? "" : lesson.currentTopicId,
+                lesson.questionsOpen, lesson.questionsOpen && lesson.currentVisitId != null, reactions);
+        for (Models.Question question : lesson.questions)
+            if (vm.userId().equals(question.studentId) && !"DRAFT".equals(question.status)) participation.acknowledge(question.id);
+    }
+
+    @Override public void onPause() {
+        if (participation != null) participation.flushDraft();
+        super.onPause();
+    }
+
+    @Override public void onDestroyView() {
+        if (participation != null) participation.collapse();
+        participation = null;
+        pickerBack = null;
+        super.onDestroyView();
     }
 
     private void showTopics(Models.Lesson lesson, boolean teacher) {

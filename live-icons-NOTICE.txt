@@ -1,0 +1,6 @@
+Material Icons Outlined: thumb_up, speed, menu_book, calculate, expand_more, near_me, check
+Copyright Google LLC. Licensed under the Apache License, Version 2.0.
+License: https://www.apache.org/licenses/LICENSE-2.0
+Source: https://github.com/google/material-design-icons
+Downloaded from https://fonts.gstatic.com/s/i/materialiconsoutlined/{icon}/v6/24px.svg
+Converted unchanged path geometry to Android VectorDrawable.

@@ -462,6 +462,44 @@ public class OnlineEmulatorInstrumentedTest {
     }
 
     @Test
+    public void liveComposerSendsSelectedMajorAndKeepsDraftWhileIntakeIsClosed() throws Exception {
+        Client teacher = client(), student = client();
+        JSONObject fixture = create(teacher);
+        String sid = fixture.optString("sid");
+        join(teacher, student, sid);
+        JSONObject started = mutate(teacher, "changeProgress", OnlineJson.values(
+                "sessionId", sid, "action", "START", "expectedProgressVersion", 0));
+        showSession(student, sid);
+        onView(withId(R.id.live_topic_button)).perform(click());
+        onView(withContentDescription("대주제 2, 베이즈 정리")).perform(click());
+        onView(withId(R.id.live_question_input)).perform(replaceText("이전 주제와 어떤 관계인가요?"), closeSoftKeyboard());
+        String questionId = context.getSharedPreferences("live_question_composer", 0)
+                .getString("online/" + student.uid + "/" + sid + "/id", "");
+        onView(withId(R.id.live_send)).perform(click());
+        await(() -> student.db.store().document(sid, "QUESTION", questionId) != null);
+        OnlineDatabase.Document question = student.db.store().document(sid, "QUESTION", questionId);
+        JSONObject received = OnlineJson.object(question.json);
+        assertEquals(fixture.optString("second"), received.optString("topicId"));
+        assertEquals("이전 주제와 어떤 관계인가요?", received.optString("text"));
+        assertEquals("SUBMITTED", received.optString("status"));
+        onView(withId(R.id.live_question_input)).check(matches(withText("")));
+        onView(withId(R.id.live_question_input)).perform(replaceText("마감 중에도 남아야 할 질문"), closeSoftKeyboard());
+        JSONObject closed = mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", started.getJSONObject("session").optLong("revision"), "open", false));
+        await(() -> !cached(student, sid).optBoolean("questionsOpen", true));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withId(R.id.live_send)).check(matches(not(isEnabled())));
+        onView(withId(R.id.live_question_input)).check(matches(withText("마감 중에도 남아야 할 질문")));
+        scenario.recreate();
+        onView(withId(R.id.live_question_input)).check(matches(withText("마감 중에도 남아야 할 질문")));
+        mutate(teacher, "setQuestionsOpen", OnlineJson.values(
+                "sessionId", sid, "baseRevision", closed.getJSONObject("session").optLong("revision"), "open", true));
+        await(() -> cached(student, sid).optBoolean("questionsOpen"));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        onView(withId(R.id.live_send)).check(matches(isEnabled()));
+    }
+
+    @Test
     public void studentLastTopicHasNoAdvanceButtonAndSharedIntakeDisablesAllFourReactions()
             throws Exception {
         Client teacher = client(), student = client();

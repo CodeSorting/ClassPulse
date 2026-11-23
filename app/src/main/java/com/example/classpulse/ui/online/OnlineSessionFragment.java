@@ -1,6 +1,8 @@
 package com.example.classpulse.ui.online;
 
 import android.view.View;
+import androidx.activity.OnBackPressedCallback;
+import com.example.classpulse.ui.LiveParticipationView;
 import com.example.classpulse.R;
 import com.example.classpulse.online.*;
 import java.util.ArrayList;
@@ -12,6 +14,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class OnlineSessionFragment extends OnlineFragment {
     private boolean busy, intakeSettingsPending;
+    private LiveParticipationView participation;
+    private OnBackPressedCallback pickerBack;
     private String recordingNotice = "";
     private static final String[] TYPES = {"UNDERSTANDING", "SPEED", "TERM", "CALCULATION"};
     private static final String[] LABELS = {"이해가 안 돼요", "너무 빨라요", "용어가 어려워요", "계산을 놓쳤어요"};
@@ -35,8 +39,17 @@ public final class OnlineSessionFragment extends OnlineFragment {
     @Override
     protected void render() {
         if (shell == null || repo == null) return;
-        clear();
         JSONObject s = lesson();
+        if (!s.optString("id").isEmpty() && !owner() && "LIVE".equals(s.optString("status"))) {
+            renderParticipation(s);
+            return;
+        }
+        if (participation != null) {
+            participation.unmount(shell);
+            participation = null;
+            if (pickerBack != null) pickerBack.remove();
+        }
+        clear();
         if (s.optString("id").isEmpty()) {
             ui.note(shell.content, "수업 권한과 진도를 확인하고 있어요.");
             showNotice();
@@ -257,6 +270,73 @@ public final class OnlineSessionFragment extends OnlineFragment {
         }
         pending();
         ui.button(shell.content, "전송 상태 다시 확인", false, repo::retry);
+    }
+
+    private void renderParticipation(JSONObject session) {
+        if (participation == null) {
+            participation = new LiveParticipationView(requireContext(), "online/" + repo.uid + "/" + screen.lessonId,
+                    new LiveParticipationView.Listener() {
+                @Override public void reaction(int index) {
+                    JSONObject progress = lesson().optJSONObject("progress");
+                    if (progress != null) react(index, progress);
+                }
+                @Override public void saveDraft(String id, String topicId, String text) {
+                    repo.saveDraft(screen.lessonId, id, topicId, text, false, null);
+                }
+                @Override public void send(String id, String topicId, String text, LiveParticipationView.Result result) {
+                    JSONObject current = lesson();
+                    if (!"LIVE".equals(current.optString("status")) || !current.optBoolean("questionsOpen", true)) {
+                        result.finish(false, "지금은 질문을 접수하지 않아요. 작성한 내용은 보관했어요.");
+                        return;
+                    }
+                    repo.saveDraft(screen.lessonId, id, topicId, text, true, new OnlineRepository.Callback() {
+                        @Override public void success(JSONObject value) {
+                            result.finish(true, "질문을 전송 대기열에 저장했어요. 내 기록에서 접수 상태를 확인할 수 있어요.");
+                        }
+                        @Override public void error(String reason, String message) { result.finish(false, message); }
+                    });
+                }
+            });
+            pickerBack = new OnBackPressedCallback(false) {
+                @Override public void handleOnBackPressed() { if (participation != null) participation.collapse(); }
+            };
+            requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), pickerBack);
+            participation.onExpandedChanged(() -> pickerBack.setEnabled(participation != null && participation.isExpanded()));
+        }
+        participation.mount(shell);
+        JSONObject progress = session.optJSONObject("progress");
+        if (progress == null) progress = new JSONObject();
+        java.util.Set<String> completed = new java.util.HashSet<>();
+        JSONArray done = progress.optJSONArray("completedTopicIds");
+        if (done != null) for (int i = 0; i < done.length(); i++) completed.add(done.optString(i));
+        List<LiveParticipationView.Topic> outline = new ArrayList<>();
+        for (OnlineDatabase.Document doc : topics()) {
+            JSONObject topic = OnlineJson.object(doc.json);
+            outline.add(new LiveParticipationView.Topic(doc.id,
+                    topic.isNull("parentTopicId") ? "" : topic.optString("parentTopicId"),
+                    topic.optString("title"), completed.contains(doc.id)));
+        }
+        String visit = progress.isNull("currentVisitId") ? "" : progress.optString("currentVisitId");
+        String topicId = visit.isEmpty() || progress.isNull("currentTopicId") ? "" : progress.optString("currentTopicId");
+        boolean accepting = session.optBoolean("questionsOpen", true);
+        boolean[] reactions = new boolean[4];
+        for (int i = 0; i < reactions.length; i++) reactions[i] = reactionLabel(i, visit).startsWith("✓");
+        participation.bind(session.optString("title"), outline, topicId, accepting, accepting && !visit.isEmpty(), reactions);
+        for (OnlineDatabase.Draft draft : drafts)
+            if ("QUESTION_DRAFT".equals(draft.kind) && draft.closed) participation.acknowledge(draft.id);
+        for (OnlineDatabase.Document question : kind("QUESTION")) participation.acknowledge(question.id);
+    }
+
+    @Override public void onPause() {
+        if (participation != null) participation.flushDraft();
+        super.onPause();
+    }
+
+    @Override public void onDestroyView() {
+        if (participation != null) participation.collapse();
+        participation = null;
+        pickerBack = null;
+        super.onDestroyView();
     }
 
     /** 종료된 수업의 복습 메뉴. 전체 원문과 요약을 따로 열 수 있게 나눈다. */

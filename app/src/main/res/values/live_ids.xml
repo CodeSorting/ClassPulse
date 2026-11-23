@@ -1,0 +1,15 @@
+<resources>
+    <item name="live_participation" type="id" />
+    <item name="live_outline_scroll" type="id" />
+    <item name="live_reactions" type="id" />
+    <item name="live_understood" type="id" />
+    <item name="live_confused" type="id" />
+    <item name="live_speed" type="id" />
+    <item name="live_term" type="id" />
+    <item name="live_calculation" type="id" />
+    <item name="live_composer" type="id" />
+    <item name="live_topic_button" type="id" />
+    <item name="live_topic_picker" type="id" />
+    <item name="live_question_input" type="id" />
+    <item name="live_send" type="id" />
+</resources>
