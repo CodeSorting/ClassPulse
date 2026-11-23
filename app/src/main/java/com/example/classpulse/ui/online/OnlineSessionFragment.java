@@ -114,11 +114,11 @@ public final class OnlineSessionFragment extends OnlineFragment {
         showNotice();
         if (!ended)
             renderOutline(outline, children, progress, teacher && "LIVE".equals(s.optString("status")));
-        if (teacher || ended) {
-            ui.button(shell.content, teacher ? "녹음·수업 자료" : "수업 원문·복습 자료",
-                    false, () -> open("online_material"));
-            ui.button(shell.content, teacher ? "복습 퀴즈 작성" : "복습 퀴즈 풀기",
-                    false, () -> open("online_quizzes"));
+        if (ended) {
+            reviewHub(teacher);
+        } else if (teacher) {
+            ui.button(shell.content, "녹음·수업 자료", false, () -> open("online_material"));
+            ui.button(shell.content, "복습 퀴즈 작성", false, () -> open("online_quizzes"));
         }
         if (teacher) {
             if ("READY".equals(s.optString("status"))) {
@@ -188,21 +188,9 @@ public final class OnlineSessionFragment extends OnlineFragment {
                                     "online_question_edit",
                                     screen.withQuestion(OnlineJson.id())
                                             .withTopic(currentTopic)));
-            ui.button(
-                    shell.content,
-                    "질문할 순간 표시",
-                    false,
-                    () -> {
-                        if (currentTopic.isEmpty()) {
-                            error("수업이 진행 중일 때 현재 주제를 표시할 수 있어요.");
-                            return;
-                        }
-                        ui.prompt(
-                                "개인 키워드",
-                                "",
-                                false,
-                                v -> repo.saveMark(screen.lessonId, currentTopic, v, callback(x -> {})));
-                    });
+            // QA 9: '질문할 순간 표시' 버튼은 질문 작성 화면의 '개인 초안 저장'과 역할이 겹쳐 제거했다.
+            // 예전에 저장된 개인 표시는 아래 목록과 내 기록에서 계속 보인다.
+            ui.note(shell.content, "질문을 다 쓰지 못했다면 질문 화면에서 '개인 초안 저장'을 눌러 두고 나중에 이어서 써요.");
         }
         renderSessionRecords(shell.content, teacher);
     }
@@ -348,6 +336,32 @@ public final class OnlineSessionFragment extends OnlineFragment {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /** 종료된 수업의 복습 메뉴. 교수자는 1→2→3 단계로, 학생은 원문·요약을 따로 연다. */
+    private void reviewHub(boolean teacher) {
+        if (teacher) {
+            ui.section(shell.content, "수업 후 자료 만들기",
+                    "한 단계씩 끝내면 다음 단계 화면으로 넘어가요.");
+            ui.card(shell.content, "1. 녹음·전체 원문 검토", "녹음 업로드, STT 변환, 오인식 수정 후 원문을 공개해요.",
+                    "1단계", () -> open("online_material"));
+            ui.card(shell.content, "2. 대주제별 요약·보충 설명", "원문을 공개한 뒤 대주제마다 요약과 보충 설명을 공개해요.",
+                    "2단계", () -> open("online_summary"));
+            ui.card(shell.content, "3. 복습 퀴즈 만들기", "직접 쓰거나 AI 초안으로 문제를 만들어 공개해요.",
+                    "3단계", () -> open("online_quizzes"));
+            ui.note(shell.content, "공개 Q&A는 이 화면 아래쪽에서 대주제별로 확인할 수 있어요.");
+            return;
+        }
+        ui.section(shell.content, "수업 후 복습", "전체 원문과 요약을 나눠서 보고, 퀴즈로 확인해요.");
+        ui.card(shell.content, "전체 강의 원문", "수업 처음부터 끝까지 구간별로 읽어요.",
+                "원문", () -> open("online_transcript"));
+        ui.card(shell.content, "대주제별 요약·보충 설명", "핵심만 빠르게 다시 봐요.",
+                "요약", () -> open("online_summary"));
+        ui.card(shell.content, "복습 퀴즈 풀기", "내 속도로 풀고 해설을 확인해요.",
+                "퀴즈", () -> open("online_quizzes"));
+        ui.card(shell.content, "내 질문·표시 기록", "궁금했던 순간과 작성 중인 질문을 다시 찾아요.",
+                "나만 보는 기록", () -> open("online_records", screen.forLesson(screen.lessonId)));
+        ui.note(shell.content, "공개 Q&A는 이 화면 아래쪽에서 대주제별로 확인할 수 있어요.");
     }
 
     private void renderReactionPages(List<OnlineDatabase.Document> outline, String currentTopic) {

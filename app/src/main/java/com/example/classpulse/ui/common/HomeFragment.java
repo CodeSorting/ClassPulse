@@ -65,29 +65,45 @@ public final class HomeFragment extends BaseFragment {
             return;
         }
         int count = 0;
-        for (Models.Lesson lesson : vm.currentLessons()) {
-            if (vm.teacher()
-                    ? !"demo-teacher".equals(lesson.teacherId)
-                    : !lesson.isMember(vm.userId())) continue;
-            count++;
-            String status =
-                    "LIVE".equals(lesson.status)
-                            ? "수업 중"
-                            : "ENDED".equals(lesson.status) ? "수업 종료" : "시작 전";
-            String subtitle = lesson.description == null ? "" : lesson.description;
-            if (Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
-                    && lesson.currentTopic() != null)
-                subtitle += "\n현재 주제 · " + lesson.topicPath(lesson.currentTopic());
-            boolean canDelete = vm.teacher() && vm.userId().equals(lesson.teacherId)
-                    && !Models.LIVE.equals(lesson.status) && !Models.isBuiltInLesson(lesson.id);
-            ui.card(content, lesson.title, subtitle, status, () -> open(lesson),
-                    canDelete ? anchor -> lessonMenu(lesson, anchor) : null);
-        }
+        // 수업 상태별로 묶어서 보여 준다: 지금 진행 중 → 시작 전 → 종료(복습).
+        count += group(Models.LIVE, "지금 진행 중인 수업", "눌러서 바로 수업 화면으로 가요.");
+        count += group("READY", "시작 전 수업", vm.teacher() ? "초대 코드를 공유하고 수업을 시작해요." : "교수님이 시작하면 참여할 수 있어요.");
+        count += group("ENDED", "종료된 수업 · 복습", "원문·요약·공개 Q&A·퀴즈로 다시 확인해요.");
         if (count == 0)
             ui.card(content, "아직 참여한 수업이 없어요", "교수님이 공유한 초대 링크나 4자리 코드를 입력해 주세요.", "시작하기", null);
         ui.note(
                 content,
                 "시연 수업 참여 코드: 4821\n두 역할은 이 기기 안에서 같은 수업 데이터를 사용해요. 다른 기기와의 공유는 실제 서비스 연결 후 사용할 수 있어요.");
+    }
+
+    private int group(String status, String title, String subtitle) {
+        java.util.List<Models.Lesson> list = new java.util.ArrayList<>();
+        for (Models.Lesson lesson : vm.currentLessons()) {
+            if (vm.teacher()
+                    ? !"demo-teacher".equals(lesson.teacherId)
+                    : !lesson.isMember(vm.userId())) continue;
+            boolean match = "READY".equals(status)
+                    ? !Models.LIVE.equals(lesson.status) && !"ENDED".equals(lesson.status)
+                    : status.equals(lesson.status);
+            if (match) list.add(lesson);
+        }
+        if (list.isEmpty()) return 0;
+        ui.section(content, title + " " + list.size(), subtitle);
+        for (Models.Lesson lesson : list) {
+            String badge =
+                    Models.LIVE.equals(lesson.status)
+                            ? "수업 중"
+                            : "ENDED".equals(lesson.status) ? "수업 종료" : "시작 전";
+            String subtitleText = lesson.description == null ? "" : lesson.description;
+            if (Models.LIVE.equals(lesson.status) && lesson.currentVisitId != null
+                    && lesson.currentTopic() != null)
+                subtitleText += "\n현재 주제 · " + lesson.topicPath(lesson.currentTopic());
+            boolean canDelete = vm.teacher() && vm.userId().equals(lesson.teacherId)
+                    && !Models.LIVE.equals(lesson.status) && !Models.isBuiltInLesson(lesson.id);
+            ui.card(content, lesson.title, subtitleText, badge, () -> open(lesson),
+                    canDelete ? anchor -> lessonMenu(lesson, anchor) : null);
+        }
+        return list.size();
     }
 
     private void lessonMenu(Models.Lesson lesson, View anchor) {
