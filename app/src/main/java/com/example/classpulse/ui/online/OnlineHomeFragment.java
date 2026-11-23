@@ -41,16 +41,10 @@ public final class OnlineHomeFragment extends OnlineFragment {
                 false,
                 () -> open("online_join", ScreenContext.empty()));
         if (sessions.isEmpty()) ui.note(shell.content, "아직 불러온 수업이 없어요. 수업을 만들거나 초대를 확인해 주세요.");
-        for (OnlineDatabase.Session s : sessions) {
-            boolean owned = repo.uid.equals(s.ownerUid);
-            ui.card(
-                    shell.content,
-                    s.title,
-                    (owned ? "내가 운영하는 수업" : "참여 중인 수업") + " · " + stateLabel(s.status),
-                    deleting.contains(s.id) ? "삭제 중…" : null,
-                    () -> open("online_session", ScreenContext.empty().forLesson(s.id)),
-                    owned && !"LIVE".equals(s.status) && !deleting.contains(s.id) ? anchor -> showLessonMenu(anchor, s) : null);
-        }
+        // 수업 상태별로 묶어서 보여 준다: 지금 진행 중 → 시작 전 → 종료(복습).
+        group("LIVE", "지금 진행 중인 수업", "눌러서 바로 수업에 참여해요.");
+        group("READY", "시작 전 수업", "목차와 초대를 준비하고 수업 시작을 기다려요.");
+        group("ENDED", "종료된 수업 · 복습", "원문·요약·공개 Q&A·퀴즈로 다시 확인해요.");
         ui.button(
                 shell.dock,
                 "서버 상태 다시 확인",
@@ -60,6 +54,42 @@ public final class OnlineHomeFragment extends OnlineFragment {
                     if (subscriptionRefresh != null) subscriptionRefresh.close();
                     subscriptionRefresh = repo.watchHome();
                 });
+    }
+
+    private void group(String status, String title, String subtitle) {
+        int count = 0;
+        for (OnlineDatabase.Session s : sessions) if (inGroup(status, s.status)) count++;
+        if (count == 0) return;
+        ui.section(shell.content, title + " " + count, subtitle);
+        for (OnlineDatabase.Session s : sessions) {
+            if (!inGroup(status, s.status)) continue;
+            boolean owned = repo.uid.equals(s.ownerUid);
+            ui.card(
+                    shell.content,
+                    s.title,
+                    (owned ? "내가 운영하는 수업" : "참여 중인 수업") + " · " + nextStep(status, owned),
+                    deleting.contains(s.id) ? "삭제 중…" : stateLabel(s.status),
+                    () -> open("online_session", ScreenContext.empty().forLesson(s.id)),
+                    owned && !"LIVE".equals(s.status) && !deleting.contains(s.id) ? anchor -> showLessonMenu(anchor, s) : null);
+        }
+    }
+
+    /** LIVE·ENDED가 아닌 상태는 모두 "시작 전"으로 묶어 목록에서 빠지지 않게 한다. */
+    private static boolean inGroup(String group, String status) {
+        if ("READY".equals(group)) return !"LIVE".equals(status) && !"ENDED".equals(status);
+        return group.equals(status);
+    }
+
+    /** 카드를 눌렀을 때 무엇을 할 수 있는지 한 줄로 알려 준다. */
+    private static String nextStep(String status, boolean owned) {
+        switch (status) {
+            case "LIVE":
+                return owned ? "진도 관리·반응 확인" : "반응·질문 보내기";
+            case "ENDED":
+                return owned ? "녹음 변환·자료 공개" : "원문·요약·퀴즈 복습";
+            default:
+                return owned ? "목차 편집·초대 후 시작" : "교수님의 시작을 기다리는 중";
+        }
     }
 
     private void showLessonMenu(View anchor, OnlineDatabase.Session session) {

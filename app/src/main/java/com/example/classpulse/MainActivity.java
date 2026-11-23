@@ -372,6 +372,14 @@ public final class MainActivity extends AppCompatActivity {
             case "online_material":
                 f = new OnlineMaterialsFragment();
                 break;
+            case "online_transcript":
+                f = new OnlineMaterialsFragment();
+                args.putString("material_section", "transcript");
+                break;
+            case "online_summary":
+                f = new OnlineMaterialsFragment();
+                args.putString("material_section", "summary");
+                break;
             case "online_quizzes":
                 f = new OnlineQuizzesFragment();
                 break;
